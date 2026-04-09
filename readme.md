@@ -1,6 +1,6 @@
 # NERFIFY: A Multi-Agent Framework for Turning NeRF Papers into Code
 
-### [Project Page](https://jainsee24.github.io/NERFIFY/) | [arXiv](https://arxiv.org/abs/2603.00805)
+### [Project Page](https://jainsee24.github.io/NERFIFY/) | [arXiv](https://arxiv.org/abs/2603.00805) | [Interactive Demo](https://seemandhar.github.io/nerfify-code/demo.html)
 
 > Converting research papers into trainable Nerfstudio plugins, from weeks to minutes.
 
@@ -9,6 +9,12 @@
 University of California, San Diego
 
 **CVPR 2026 (Highlight)**
+
+## Demo
+
+[![Interactive Demo](demo-screenshot.png)](https://seemandhar.github.io/nerfify-code/demo.html)
+
+**[Click to launch the interactive demo](https://seemandhar.github.io/nerfify-code/demo.html)** — watch the full 7-agent pipeline run end-to-end: paper parsing, code generation, testing, debugging, training with PSNR feedback, and VLM-guided refinement.
 
 ## Overview
 
