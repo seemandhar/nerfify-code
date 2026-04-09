@@ -8,7 +8,7 @@
 
 University of California, San Diego
 
-**CVPR 2026**
+**CVPR 2026 (Highlight)**
 
 ## Overview
 
