@@ -1,0 +1,20 @@
+# Core — Claude Agent SDK
+claude-agent-sdk>=0.1
+
+# Web UI
+flask>=3.0
+werkzeug>=3.0
+
+# Multi-model API (Claude, GPT, Gemini, open-source via LiteLLM)
+litellm>=1.40
+anthropic>=0.30
+
+# Web search (for agents)
+duckduckgo-search>=6.0
+
+# Async
+anyio>=4.0
+
+# PDF extraction
+mineru
+httpx>=0.25

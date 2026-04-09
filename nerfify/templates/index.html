@@ -1,0 +1,1904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nerfify — Paper to Code Pipeline</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #79c0ff;
+    --orange: #f0883e;
+    --radius: 8px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+    z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--orange), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: rgba(88, 166, 255, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(88, 166, 255, 0.25);
+    white-space: nowrap;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    margin-right: 6px;
+    vertical-align: middle;
+    transition: background 0.3s;
+  }
+  .status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-status 1.5s infinite; }
+  .status-dot.error   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+  .status-dot.done    { background: var(--accent); }
+  @keyframes pulse-status {
+    0%, 100% { box-shadow: 0 0 4px var(--green); }
+    50% { box-shadow: 0 0 12px var(--green); }
+  }
+  #elapsed { font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace; font-size: 13px; }
+
+  /* ── Token overlay (top-right of graph) ─────────────────── */
+  .token-overlay {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(22, 27, 34, 0.85);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 11px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    z-index: 20;
+    backdrop-filter: blur(8px);
+    min-width: 160px;
+    transition: border-color 0.3s;
+  }
+  .token-overlay .tok-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; }
+  .token-overlay .tok-label { color: var(--text-dim); }
+  .token-overlay .tok-val { color: var(--text); }
+  .token-overlay .tok-val.cost { color: var(--yellow); }
+
+  /* ── Main layout ────────────────────────────────────────── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── Left sidebar ───────────────────────────────────────── */
+  .sidebar-left {
+    width: 320px;
+    min-width: 320px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    z-index: 10;
+    background: var(--surface);
+  }
+
+  /* Cards */
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .card.glow { border-color: rgba(88, 166, 255, 0.4); box-shadow: 0 0 12px rgba(88, 166, 255, 0.06); }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .card-body { padding: 14px; }
+
+  /* Form elements */
+  label.field-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    margin-top: 10px;
+  }
+  label.field-label:first-child { margin-top: 0; }
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input[type="text"]:focus, select:focus, input[type="password"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder, input[type="password"]::placeholder { color: var(--text-dim); opacity: 0.5; }
+  select {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    transition: border-color 0.2s;
+  }
+  select option { background: var(--surface); color: var(--text); }
+  .key-status { font-size: 10px; margin-top: 3px; color: var(--text-dim); }
+  .key-status.set { color: var(--green); }
+  .key-toggle { display: flex; gap: 6px; margin-bottom: 4px; }
+  .key-toggle button {
+    flex: 1;
+    padding: 4px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .key-toggle button.active { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,0.08); }
+
+  /* Toggle switch */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+  .toggle-label { font-size: 12px; color: var(--text); }
+  .toggle {
+    position: relative;
+    width: 34px; height: 18px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.25s;
+    outline: none;
+    border: none;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.25s;
+  }
+  .toggle:checked { background: var(--green); }
+  .toggle:checked::after { transform: translateX(16px); }
+
+  /* Run/Stop buttons */
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-run {
+    flex: 1;
+    padding: 9px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, #238636, #2ea043);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: opacity 0.2s, filter 0.2s;
+    letter-spacing: 0.3px;
+  }
+  .btn-run:hover:not(:disabled) { filter: brightness(1.1); }
+  .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-stop {
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, #da3633, #f85149);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: none;
+    transition: filter 0.2s;
+  }
+  .btn-stop:hover { filter: brightness(1.1); }
+
+  /* ── Graph area (center) ────────────────────────────────── */
+  .graph-area {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .graph-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Background grid */
+  .graph-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(48,54,61,0.5) 1px, transparent 0);
+    background-size: 32px 32px;
+    animation: grid-drift 20s linear infinite;
+  }
+  @keyframes grid-drift {
+    0%   { background-position: 0 0; }
+    100% { background-position: 32px 32px; }
+  }
+
+  /* SVG graph */
+  #pipeline-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── SVG Node Styles ────────────────────────────────────── */
+  .node-group { cursor: default; }
+  .node-group .node-bg {
+    fill: var(--surface);
+    stroke: var(--border);
+    stroke-width: 2;
+    rx: 12;
+    transition: fill 0.4s, stroke 0.4s;
+  }
+  .node-group .node-icon {
+    font-size: 20px;
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .node-group .node-label {
+    fill: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    text-anchor: middle;
+    transition: fill 0.4s;
+  }
+  .node-group .node-status-text {
+    fill: var(--text-dim);
+    font-size: 10px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    text-anchor: middle;
+    opacity: 0;
+    transition: opacity 0.3s, fill 0.3s;
+  }
+
+  /* Progress arc */
+  .node-group .progress-arc {
+    fill: none;
+    stroke: var(--cyan);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 60 200;
+    opacity: 0;
+    transform-origin: center;
+    transition: opacity 0.3s;
+  }
+
+  /* Glow filter pulse */
+  .node-group .glow-ring {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 2;
+    rx: 16;
+    transition: stroke 0.4s;
+  }
+
+  /* Active state */
+  .node-group.active .node-bg {
+    stroke: var(--cyan);
+    fill: rgba(121, 192, 255, 0.06);
+  }
+  .node-group.active .node-label { fill: var(--cyan); }
+  .node-group.active .node-status-text { opacity: 1; fill: var(--cyan); }
+  .node-group.active .glow-ring {
+    stroke: rgba(121, 192, 255, 0.3);
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
+  .node-group.active .progress-arc {
+    opacity: 1;
+    animation: spin-arc 1.2s linear infinite;
+  }
+  @keyframes glow-pulse {
+    0%, 100% { stroke: rgba(121, 192, 255, 0.15); }
+    50%      { stroke: rgba(121, 192, 255, 0.45); }
+  }
+  @keyframes spin-arc {
+    0%   { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: -260; }
+  }
+
+  /* Done state */
+  .node-group.done .node-bg {
+    stroke: var(--green);
+    fill: rgba(63, 185, 80, 0.06);
+  }
+  .node-group.done .node-label { fill: var(--green); }
+  .node-group.done .node-status-text { opacity: 1; fill: var(--green); }
+  .node-group.done .glow-ring { stroke: transparent; animation: none; }
+  .node-group.done .progress-arc { opacity: 0; animation: none; }
+
+  /* Error state */
+  .node-group.error .node-bg {
+    stroke: var(--red);
+    fill: rgba(248, 81, 73, 0.06);
+    animation: shake 0.4s ease-in-out;
+  }
+  .node-group.error .node-label { fill: var(--red); }
+  .node-group.error .node-status-text { opacity: 1; fill: var(--red); }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%      { transform: translateX(-4px); }
+    40%      { transform: translateX(4px); }
+    60%      { transform: translateX(-3px); }
+    80%      { transform: translateX(3px); }
+  }
+
+  /* Completion burst */
+  @keyframes burst {
+    0%   { r: 20; opacity: 0.6; stroke-width: 4; }
+    100% { r: 50; opacity: 0; stroke-width: 0; }
+  }
+  .burst-circle {
+    fill: none;
+    stroke: var(--green);
+    pointer-events: none;
+  }
+
+  /* Edge paths */
+  .edge-path {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 2;
+    transition: stroke 0.5s;
+  }
+  .edge-path.active { stroke: var(--cyan); stroke-width: 2.5; }
+  .edge-path.done   { stroke: var(--green); }
+
+  /* Animated particles along edges */
+  .edge-particle {
+    r: 3;
+    fill: var(--cyan);
+    filter: url(#particle-glow);
+    opacity: 0;
+  }
+  .edge-particle.flowing { opacity: 1; }
+
+  /* Feedback loop arrows */
+  .loop-label {
+    fill: var(--text-dim);
+    font-size: 9px;
+    font-family: "SF Mono", monospace;
+    text-anchor: middle;
+    opacity: 0.6;
+  }
+
+  /* Tooltip */
+  .node-tooltip {
+    position: absolute;
+    background: rgba(22, 27, 34, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--text);
+    max-width: 280px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 50;
+    backdrop-filter: blur(8px);
+  }
+  .node-tooltip.visible { opacity: 1; }
+  .node-tooltip .tt-title { font-weight: 700; margin-bottom: 3px; color: var(--accent); }
+  .node-tooltip .tt-desc { color: var(--text-dim); line-height: 1.4; }
+
+  /* ── Bottom Drawer (Log) ────────────────────────────────── */
+  .drawer-wrapper {
+    position: relative;
+    flex-shrink: 0;
+    z-index: 50;
+  }
+
+  .drawer-handle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    cursor: ns-resize;
+    user-select: none;
+  }
+  .drawer-handle-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .drawer-grip {
+    width: 40px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+  }
+  .drawer-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .drawer-badge.visible { opacity: 1; }
+  .drawer-handle-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .drawer-latest {
+    font-size: 11px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    color: var(--text-dim);
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.7;
+  }
+
+  .btn-drawer {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .btn-drawer:hover { color: var(--text); border-color: var(--text-dim); }
+
+  .drawer-content {
+    height: 0;
+    overflow: hidden;
+    transition: height 0.25s ease;
+    background: var(--bg);
+  }
+  .drawer-content.open {
+    border-top: 1px solid var(--border);
+  }
+
+  #log-container {
+    height: 100%;
+    overflow-y: auto;
+    padding: 10px 16px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    background: var(--bg);
+  }
+  #log-container::-webkit-scrollbar { width: 5px; }
+  #log-container::-webkit-scrollbar-track { background: transparent; }
+  #log-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .log-line {
+    padding: 1px 0;
+    display: flex;
+    gap: 10px;
+    animation: log-fade-in 0.15s ease-out;
+  }
+  @keyframes log-fade-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .log-ts {
+    color: var(--text-dim);
+    opacity: 0.4;
+    font-size: 10px;
+    flex-shrink: 0;
+    min-width: 55px;
+    user-select: none;
+  }
+  .log-msg { white-space: pre-wrap; word-break: break-word; }
+  .log-msg.stage    { color: var(--green); font-weight: 700; }
+  .log-msg.agent    { color: var(--cyan); }
+  .log-msg.tool     { color: var(--yellow); cursor: pointer; }
+  .log-msg.tool:hover { text-decoration: underline; }
+  .log-msg.thinking { color: var(--purple); opacity: 0.6; }
+  .log-msg.text     { color: var(--text); }
+  .log-msg.error    { color: var(--red); }
+  .log-msg.system   { color: var(--text-dim); opacity: 0.5; }
+  .log-msg.result   { color: var(--green); }
+  .log-msg.bash     { color: var(--yellow); font-weight: 600; }
+  .log-msg.bash-out { color: var(--text-dim); padding-left: 16px; border-left: 2px solid var(--border); margin-left: 4px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; font-size: 11px; }
+
+  /* ── Right panel ────────────────────────────────────────── */
+  .sidebar-right {
+    width: 380px;
+    min-width: 380px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .detail-section { margin-bottom: 10px; }
+  .detail-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .detail-content {
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    max-height: 260px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .detail-content::-webkit-scrollbar { width: 4px; }
+  .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .detail-placeholder {
+    color: var(--text-dim);
+    opacity: 0.35;
+    font-size: 12px;
+    text-align: center;
+    padding: 30px 16px;
+  }
+
+  .stage-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    padding: 8px 12px;
+    background: rgba(88, 166, 255, 0.06);
+    border: 1px solid rgba(88, 166, 255, 0.15);
+    border-radius: 6px;
+    color: var(--accent);
+  }
+  .stage-indicator .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse-dot 1.5s infinite;
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+  }
+
+  .file-progress-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 3px 0;
+    color: var(--text-dim);
+    font-family: "SF Mono", monospace;
+    animation: log-fade-in 0.2s ease-out;
+  }
+  .file-progress-item .check { color: var(--green); }
+
+  /* ── Idle graph watermark ───────────────────────────────── */
+  .graph-watermark {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0.15;
+    z-index: 5;
+    transition: opacity 0.5s;
+  }
+  .graph-watermark.hidden { opacity: 0; }
+  .graph-watermark .wm-text {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .graph-watermark .wm-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  /* ── Responsive ─────────────────────────────────────────── */
+  @media (max-width: 1199px) {
+    .sidebar-right { display: none; }
+  }
+  @media (max-width: 899px) {
+    .main { flex-direction: column; }
+    .sidebar-left {
+      width: 100%; min-width: 0;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      max-height: 45vh;
+    }
+  }
+
+  /* Node float animation */
+  @keyframes float-y {
+    0%, 100% { transform: translateY(0px); }
+    50%      { transform: translateY(-3px); }
+  }
+  .node-group.idle-float {
+    animation: float-y 4s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header>
+  <div class="header-left">
+    <span class="logo">Nerfify</span>
+    <span class="subtitle-badge">Paper &rarr; Code &bull; Claude Multi-Agent</span>
+  </div>
+  <div class="header-right">
+    <span><span class="status-dot" id="status-dot"></span><span id="status-text">Idle</span></span>
+    <span id="elapsed">00:00</span>
+  </div>
+</header>
+
+<!-- ── Main Layout ─────────────────────────────────────────── -->
+<div class="main">
+
+  <!-- Left Sidebar: Input & Config -->
+  <aside class="sidebar-left">
+
+    <div class="card">
+      <div class="card-header">Paper Input</div>
+      <div class="card-body">
+        <label class="field-label">arXiv / PDF URL</label>
+        <input type="text" id="arxiv-url" placeholder="arXiv ID, URL, or PDF URL">
+        <label class="field-label">Local PDF Path</label>
+        <input type="text" id="pdf-path" placeholder="/path/to/paper.pdf">
+        <label class="field-label">Method Name</label>
+        <input type="text" id="method-name" placeholder="auto-detected if empty">
+        <label class="field-label">Data Path</label>
+        <input type="text" id="data-path" placeholder="training dataset path">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Model & Auth</div>
+      <div class="card-body">
+        <label class="field-label">Model</label>
+        <select id="model-select">
+          <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+          <option value="claude-opus-4-6">Claude Opus 4</option>
+          <option value="gpt-4o">GPT-4o</option>
+          <option value="gpt-4.1">GPT-4.1</option>
+          <option value="gemini/gemini-2.5-pro">Gemini 2.5 Pro</option>
+          <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
+          <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
+          <option value="ollama/llama3.3">Llama 3.3 (Ollama)</option>
+        </select>
+        <label class="field-label" style="margin-top:10px">Authentication</label>
+        <div class="key-toggle">
+          <button id="auth-key-btn" class="active" onclick="setAuthMode('key')">API Key</button>
+          <button id="auth-oauth-btn" onclick="setAuthMode('oauth')">OAuth</button>
+        </div>
+        <input type="password" id="api-key" placeholder="sk-ant-... or Bearer token">
+        <div class="key-status" id="key-status"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Pipeline Options</div>
+      <div class="card-body">
+        <div class="toggle-row"><span class="toggle-label">Code Review</span><input type="checkbox" class="toggle" id="opt-review" checked></div>
+        <div class="toggle-row"><span class="toggle-label">Novelty Validation</span><input type="checkbox" class="toggle" id="opt-validate" checked></div>
+        <div class="toggle-row"><span class="toggle-label">Smoke Test</span><input type="checkbox" class="toggle" id="opt-smoke" checked></div>
+        <div class="toggle-row"><span class="toggle-label">Full Training</span><input type="checkbox" class="toggle" id="opt-train"></div>
+        <div style="border-top:1px solid var(--border); margin:8px 0 4px; padding-top:6px;">
+          <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">Optimizations</span>
+        </div>
+        <div class="toggle-row"><span class="toggle-label">Fast Mode</span><input type="checkbox" class="toggle" id="opt-fast"></div>
+        <div class="toggle-row"><span class="toggle-label">Tiered Models</span><input type="checkbox" class="toggle" id="opt-tiered"></div>
+        <div class="btn-row">
+          <button class="btn-run" id="btn-run" onclick="startPipeline()">Run Pipeline</button>
+          <button class="btn-stop" id="btn-stop" onclick="stopPipeline()">Stop</button>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Center: Graph + Drawer -->
+  <div class="graph-area">
+
+    <!-- Graph View -->
+    <div class="graph-container" id="graph-container">
+      <div class="graph-bg"></div>
+      <div class="graph-watermark" id="graph-watermark">
+        <div class="wm-text">Pipeline Graph</div>
+        <div class="wm-sub">Run a pipeline to see agents in action</div>
+      </div>
+
+      <!-- Token Overlay -->
+      <div class="token-overlay" id="token-overlay">
+        <div class="tok-row"><span class="tok-label">In</span><span class="tok-val" id="tok-in">0</span></div>
+        <div class="tok-row"><span class="tok-label">Out</span><span class="tok-val" id="tok-out">0</span></div>
+        <div class="tok-row"><span class="tok-label">Total</span><span class="tok-val" id="tok-total">0</span></div>
+        <div class="tok-row"><span class="tok-label">Cost</span><span class="tok-val cost" id="tok-cost">&mdash;</span></div>
+        <div class="tok-row" id="tok-turns-row" style="display:none;"><span class="tok-label">Turns</span><span class="tok-val" id="tok-turns">0</span></div>
+      </div>
+
+      <!-- Tooltip -->
+      <div class="node-tooltip" id="node-tooltip">
+        <div class="tt-title" id="tt-title"></div>
+        <div class="tt-desc" id="tt-desc"></div>
+      </div>
+
+      <!-- SVG Pipeline Graph -->
+      <svg id="pipeline-svg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="particle-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+          </filter>
+          <filter id="node-glow-green" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="6" result="blur"/>
+            <feFlood flood-color="#3fb950" flood-opacity="0.3"/>
+            <feComposite in2="blur" operator="in"/>
+            <feComposite in="SourceGraphic"/>
+          </filter>
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="var(--border)" opacity="0.5"/>
+          </marker>
+        </defs>
+        <!-- Edges and nodes will be injected by JS -->
+      </svg>
+    </div>
+
+    <!-- Bottom Drawer -->
+    <div class="drawer-wrapper" id="drawer-wrapper">
+      <div class="drawer-handle" id="drawer-handle">
+        <div class="drawer-handle-left">
+          <div class="drawer-grip"></div>
+          <span>Pipeline Log</span>
+          <span class="drawer-badge" id="drawer-badge">0</span>
+        </div>
+        <div class="drawer-handle-right">
+          <span class="drawer-latest" id="drawer-latest"></span>
+          <button class="btn-drawer" onclick="copyLog()">Copy</button>
+          <button class="btn-drawer" onclick="clearLog()">Clear</button>
+          <button class="btn-drawer" id="drawer-toggle-btn" onclick="toggleDrawer()">&#9650;</button>
+        </div>
+      </div>
+      <div class="drawer-content" id="drawer-content">
+        <div id="log-container"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right Panel: Details -->
+  <aside class="sidebar-right">
+    <div class="card" style="flex:1; display:flex; flex-direction:column;">
+      <div class="card-header">Details</div>
+      <div class="card-body" id="detail-body" style="flex:1; overflow-y:auto;">
+        <div class="detail-section">
+          <div class="detail-section-title">Current Stage</div>
+          <div class="stage-indicator" id="stage-indicator" style="display:none;">
+            <span class="dot"></span>
+            <span id="stage-name">&mdash;</span>
+          </div>
+          <div class="detail-placeholder" id="stage-placeholder">No active stage</div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">Selected Entry</div>
+          <div id="detail-selected">
+            <div class="detail-placeholder">Click a tool call in the log to inspect</div>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-section-title">File Generation</div>
+          <div id="file-progress">
+            <div class="detail-placeholder" id="file-placeholder">No files generated yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   NERFIFY — ANIMATED PIPELINE GRAPH UI
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Agent Definitions & DAG Topology ─────────────────────── */
+const AGENTS = [
+  { id: "parser",            icon: "\uD83D\uDCC4", label: "Parser",             desc: "Downloads PDF, runs MinerU extraction, cleans markdown" },
+  { id: "citation_recovery", icon: "\uD83D\uDD0D", label: "Citation Recovery",  desc: "Identifies cited papers, fetches implementation details from the web" },
+  { id: "planner",           icon: "\uD83D\uDCCB", label: "Planner",            desc: "Reads paper + citations, designs architecture DAG and file plan" },
+  { id: "coder",             icon: "\u2328\uFE0F",  label: "Code Generator",     desc: "Generates complete NeRFStudio implementation from paper + plan" },
+  { id: "reviewer",          icon: "\uD83D\uDD0E", label: "Reviewer",           desc: "Reviews code for import errors, API compliance, consistency" },
+  { id: "validator",         icon: "\u2705",        label: "Validator",          desc: "Verifies all paper novelties and equations are implemented" },
+  { id: "integrator",        icon: "\uD83D\uDD17", label: "Integrator",         desc: "Validates cross-file consistency, imports, config wiring" },
+  { id: "tester",            icon: "\uD83E\uDDEA", label: "Tester",             desc: "Installs package, runs import checks and training smoke test" },
+  { id: "debugger",          icon: "\uD83D\uDC1B", label: "Debugger",           desc: "Diagnoses errors, searches solutions, fixes code, re-tests" },
+];
+
+// DAG edges: [from, to, type]
+// type: "normal" | "parallel" | "loop"
+const EDGES = [
+  ["parser", "citation_recovery", "parallel"],
+  ["parser", "planner", "parallel"],
+  ["citation_recovery", "coder", "merge"],
+  ["planner", "coder", "merge"],
+  ["coder", "reviewer", "loop"],
+  ["reviewer", "coder", "loop"],
+  ["coder", "validator", "normal"],
+  ["validator", "integrator", "normal"],
+  ["integrator", "tester", "normal"],
+  ["tester", "debugger", "loop"],
+  ["debugger", "tester", "loop"],
+];
+
+/* ── Node positions (proportional 0-1, mapped to container) ── */
+const NODE_W = 140, NODE_H = 56;
+const NODE_POSITIONS = {
+  parser:            { x: 0.08, y: 0.5 },
+  citation_recovery: { x: 0.24, y: 0.28 },
+  planner:           { x: 0.24, y: 0.72 },
+  coder:             { x: 0.44, y: 0.5 },
+  reviewer:          { x: 0.44, y: 0.15 },
+  validator:         { x: 0.60, y: 0.5 },
+  integrator:        { x: 0.76, y: 0.5 },
+  tester:            { x: 0.92, y: 0.5 },
+  debugger:          { x: 0.92, y: 0.15 },
+};
+
+/* ── State ────────────────────────────────────────────────── */
+let state = {
+  running: false,
+  jobId: null,
+  eventSource: null,
+  timerInterval: null,
+  startTime: null,
+  tokensIn: 0,
+  tokensOut: 0,
+  tokensTotal: 0,
+  cost: null,
+  numTurns: 0,
+  durationMs: 0,
+  // Per-subagent cumulative tokens (task_progress gives cumulative per subagent)
+  subagentTokens: {},  // taskId -> latest total_tokens for that subagent
+  agents: {},
+  autoScroll: true,
+  toolCalls: {},
+  filesGenerated: [],
+  drawerOpen: false,
+  drawerHeight: 220,
+  logCount: 0,
+  unseenLogs: 0,
+  particles: [],     // active particle animations
+  agentTasks: {},    // agentId -> current task description
+};
+
+AGENTS.forEach(a => { state.agents[a.id] = "idle"; state.agentTasks[a.id] = ""; });
+
+/* ── SVG Graph Builder ────────────────────────────────────── */
+const svgNS = "http://www.w3.org/2000/svg";
+let nodeElements = {};
+let edgeElements = {};
+let particleElements = {};
+let particleAnimations = {};
+
+function getNodeCenter(id, containerW, containerH) {
+  const p = NODE_POSITIONS[id];
+  return {
+    x: p.x * containerW,
+    y: p.y * containerH,
+  };
+}
+
+function buildGraph() {
+  const svg = document.getElementById("pipeline-svg");
+  const container = document.getElementById("graph-container");
+  const W = container.offsetWidth;
+  const H = container.offsetHeight;
+
+  // Clear old nodes/edges but keep defs
+  svg.querySelectorAll(".edge-group, .node-group, .burst-circle").forEach(el => el.remove());
+
+  // Draw edges first (below nodes)
+  EDGES.forEach(([from, to, type]) => {
+    const edgeKey = from + "->" + to;
+    const g = document.createElementNS(svgNS, "g");
+    g.classList.add("edge-group");
+    g.dataset.from = from;
+    g.dataset.to = to;
+
+    const fc = getNodeCenter(from, W, H);
+    const tc = getNodeCenter(to, W, H);
+
+    const path = document.createElementNS(svgNS, "path");
+    path.classList.add("edge-path");
+    path.id = "edge-" + edgeKey;
+
+    // Calculate curved path
+    let d;
+    if (type === "loop") {
+      // Feedback loops: curved arc above/below
+      if (from === "coder" && to === "reviewer") {
+        // coder -> reviewer (upward)
+        const mx = (fc.x + tc.x) / 2;
+        const my = Math.min(fc.y, tc.y) - 40;
+        d = `M${fc.x},${fc.y - NODE_H/2} Q${mx},${my} ${tc.x},${tc.y + NODE_H/2}`;
+      } else if (from === "reviewer" && to === "coder") {
+        // reviewer -> coder (downward return)
+        const mx = (fc.x + tc.x) / 2;
+        const my = Math.min(fc.y, tc.y) - 80;
+        d = `M${fc.x - NODE_W/2},${fc.y} Q${mx - 40},${my} ${tc.x - NODE_W/2},${tc.y}`;
+      } else if (from === "tester" && to === "debugger") {
+        // tester -> debugger (upward)
+        const mx = (fc.x + tc.x) / 2;
+        const my = Math.min(fc.y, tc.y) - 40;
+        d = `M${fc.x},${fc.y - NODE_H/2} Q${mx},${my} ${tc.x},${tc.y + NODE_H/2}`;
+      } else if (from === "debugger" && to === "tester") {
+        // debugger -> tester (return)
+        const mx = (fc.x + tc.x) / 2 + 50;
+        const my = (fc.y + tc.y) / 2;
+        d = `M${fc.x + NODE_W/2},${fc.y} Q${mx},${my} ${tc.x + NODE_W/2},${tc.y}`;
+      }
+    } else {
+      // Normal/parallel/merge: smooth bezier
+      const dx = tc.x - fc.x;
+      const cp1x = fc.x + dx * 0.4;
+      const cp2x = tc.x - dx * 0.4;
+      d = `M${fc.x + NODE_W/2},${fc.y} C${cp1x},${fc.y} ${cp2x},${tc.y} ${tc.x - NODE_W/2},${tc.y}`;
+    }
+
+    path.setAttribute("d", d);
+    path.setAttribute("marker-end", "url(#arrowhead)");
+    g.appendChild(path);
+
+    // Particle for this edge
+    const particle = document.createElementNS(svgNS, "circle");
+    particle.classList.add("edge-particle");
+    particle.setAttribute("r", "3");
+    g.appendChild(particle);
+
+    // Store reference
+    edgeElements[edgeKey] = path;
+    particleElements[edgeKey] = particle;
+
+    svg.appendChild(g);
+  });
+
+  // Add loop labels
+  const loopPairs = [
+    { from: "coder", to: "reviewer", label: "review loop", pos: null },
+    { from: "tester", to: "debugger", label: "debug loop", pos: null },
+  ];
+  loopPairs.forEach(lp => {
+    const fc = getNodeCenter(lp.from, W, H);
+    const tc = getNodeCenter(lp.to, W, H);
+    const lbl = document.createElementNS(svgNS, "text");
+    lbl.classList.add("loop-label");
+    lbl.setAttribute("x", (fc.x + tc.x) / 2);
+    lbl.setAttribute("y", Math.min(fc.y, tc.y) - (lp.from === "coder" ? 85 : 55));
+    lbl.textContent = lp.label;
+    svg.appendChild(lbl);
+  });
+
+  // Draw nodes
+  AGENTS.forEach((agent, i) => {
+    const c = getNodeCenter(agent.id, W, H);
+    const g = document.createElementNS(svgNS, "g");
+    g.classList.add("node-group", "idle-float");
+    g.id = "svg-node-" + agent.id;
+    g.style.animationDelay = (i * 0.3) + "s";
+
+    // Glow ring (behind node)
+    const glow = document.createElementNS(svgNS, "rect");
+    glow.classList.add("glow-ring");
+    glow.setAttribute("x", c.x - NODE_W/2 - 4);
+    glow.setAttribute("y", c.y - NODE_H/2 - 4);
+    glow.setAttribute("width", NODE_W + 8);
+    glow.setAttribute("height", NODE_H + 8);
+    glow.setAttribute("rx", "16");
+    g.appendChild(glow);
+
+    // Progress arc (circular)
+    const arcR = Math.max(NODE_W, NODE_H) / 2 + 8;
+    const arc = document.createElementNS(svgNS, "circle");
+    arc.classList.add("progress-arc");
+    arc.setAttribute("cx", c.x);
+    arc.setAttribute("cy", c.y);
+    arc.setAttribute("r", arcR);
+    arc.setAttribute("stroke-dasharray", `${arcR * 0.8} ${arcR * Math.PI * 2}`);
+    g.appendChild(arc);
+
+    // Main bg rect
+    const rect = document.createElementNS(svgNS, "rect");
+    rect.classList.add("node-bg");
+    rect.setAttribute("x", c.x - NODE_W/2);
+    rect.setAttribute("y", c.y - NODE_H/2);
+    rect.setAttribute("width", NODE_W);
+    rect.setAttribute("height", NODE_H);
+    rect.setAttribute("rx", "12");
+    g.appendChild(rect);
+
+    // Icon
+    const icon = document.createElementNS(svgNS, "text");
+    icon.classList.add("node-icon");
+    icon.setAttribute("x", c.x);
+    icon.setAttribute("y", c.y - 8);
+    icon.textContent = agent.icon;
+    g.appendChild(icon);
+
+    // Label
+    const label = document.createElementNS(svgNS, "text");
+    label.classList.add("node-label");
+    label.setAttribute("x", c.x);
+    label.setAttribute("y", c.y + 16);
+    label.textContent = agent.label;
+    g.appendChild(label);
+
+    // Status text (below node)
+    const statusText = document.createElementNS(svgNS, "text");
+    statusText.classList.add("node-status-text");
+    statusText.id = "svg-status-" + agent.id;
+    statusText.setAttribute("x", c.x);
+    statusText.setAttribute("y", c.y + NODE_H/2 + 16);
+    statusText.textContent = "";
+    g.appendChild(statusText);
+
+    // Tooltip hover events
+    g.addEventListener("mouseenter", (e) => showTooltip(e, agent));
+    g.addEventListener("mouseleave", hideTooltip);
+    g.addEventListener("mousemove", moveTooltip);
+
+    nodeElements[agent.id] = g;
+    svg.appendChild(g);
+  });
+
+  // Reapply current agent states to new DOM nodes (needed after rebuild on resize/drawer)
+  reapplyAgentStates();
+}
+
+function reapplyAgentStates() {
+  AGENTS.forEach(a => {
+    const st = state.agents[a.id];
+    const g = nodeElements[a.id];
+    if (!g || !st) return;
+    g.classList.remove("active", "done", "error", "idle-float");
+    if (st === "idle") g.classList.add("idle-float");
+    else g.classList.add(st);
+
+    const statusEl = document.getElementById("svg-status-" + a.id);
+    if (statusEl) {
+      if (st === "active") statusEl.textContent = "running...";
+      else if (st === "done") statusEl.textContent = "\u2713 done";
+      else if (st === "error") statusEl.textContent = "\u2717 error";
+      else statusEl.textContent = "";
+    }
+  });
+  // Re-evaluate edge states and restart particles for active edges
+  updateEdgeStates();
+}
+
+/* ── Particle Animation Engine ────────────────────────────── */
+function startParticles(edgeKey) {
+  const path = edgeElements[edgeKey];
+  const particle = particleElements[edgeKey];
+  if (!path || !particle) return;
+  if (particleAnimations[edgeKey]) return; // already running
+
+  particle.classList.add("flowing");
+  const totalLen = path.getTotalLength();
+
+  let offset = 0;
+  const speed = 2.5; // px per frame
+
+  function animate() {
+    offset = (offset + speed) % totalLen;
+    const pt = path.getPointAtLength(offset);
+    particle.setAttribute("cx", pt.x);
+    particle.setAttribute("cy", pt.y);
+    particleAnimations[edgeKey] = requestAnimationFrame(animate);
+  }
+  particleAnimations[edgeKey] = requestAnimationFrame(animate);
+}
+
+function stopParticles(edgeKey) {
+  if (particleAnimations[edgeKey]) {
+    cancelAnimationFrame(particleAnimations[edgeKey]);
+    delete particleAnimations[edgeKey];
+  }
+  const particle = particleElements[edgeKey];
+  if (particle) particle.classList.remove("flowing");
+}
+
+function stopAllParticles() {
+  Object.keys(particleAnimations).forEach(stopParticles);
+}
+
+/* ── Completion Burst Effect ──────────────────────────────── */
+function burstEffect(agentId) {
+  const svg = document.getElementById("pipeline-svg");
+  const container = document.getElementById("graph-container");
+  const W = container.offsetWidth;
+  const H = container.offsetHeight;
+  const c = getNodeCenter(agentId, W, H);
+
+  const circle = document.createElementNS(svgNS, "circle");
+  circle.classList.add("burst-circle");
+  circle.setAttribute("cx", c.x);
+  circle.setAttribute("cy", c.y);
+  circle.setAttribute("r", "20");
+  circle.style.animation = "burst 0.6s ease-out forwards";
+  svg.appendChild(circle);
+  setTimeout(() => circle.remove(), 700);
+}
+
+/* ── Graph State Updates ──────────────────────────────────── */
+function setAgentState(name, st) {
+  const prev = state.agents[name];
+  state.agents[name] = st;
+
+  const g = nodeElements[name];
+  if (!g) return;
+
+  // Reset classes
+  g.classList.remove("active", "done", "error", "idle-float");
+
+  if (st === "idle") {
+    g.classList.add("idle-float");
+  } else {
+    g.classList.add(st);
+  }
+
+  // Status text
+  const statusEl = document.getElementById("svg-status-" + name);
+  if (statusEl) {
+    if (st === "active") statusEl.textContent = "running...";
+    else if (st === "done") statusEl.textContent = "\u2713 done";
+    else if (st === "error") statusEl.textContent = "\u2717 error";
+    else statusEl.textContent = "";
+  }
+
+  // Burst effect on completion
+  if (st === "done" && prev === "active") {
+    burstEffect(name);
+  }
+
+  // Update edge states & particles
+  updateEdgeStates();
+}
+
+function updateEdgeStates() {
+  EDGES.forEach(([from, to, type]) => {
+    const key = from + "->" + to;
+    const path = edgeElements[key];
+    if (!path) return;
+
+    const fromState = state.agents[from];
+    const toState = state.agents[to];
+
+    path.classList.remove("active", "done");
+
+    if (fromState === "done" && toState === "done") {
+      path.classList.add("done");
+      stopParticles(key);
+    } else if (
+      (fromState === "done" && toState === "active") ||
+      (fromState === "active" && toState === "active") ||
+      (fromState === "active" && type === "loop")
+    ) {
+      path.classList.add("active");
+      startParticles(key);
+    } else {
+      stopParticles(key);
+    }
+  });
+}
+
+function resetAgents() {
+  AGENTS.forEach(a => {
+    setAgentState(a.id, "idle");
+    state.agentTasks[a.id] = "";
+  });
+  stopAllParticles();
+}
+
+/* ── Tooltip ──────────────────────────────────────────────── */
+function showTooltip(e, agent) {
+  const tt = document.getElementById("node-tooltip");
+  document.getElementById("tt-title").textContent = agent.label;
+  const task = state.agentTasks[agent.id];
+  document.getElementById("tt-desc").textContent = task ? task : agent.desc;
+  tt.classList.add("visible");
+  moveTooltip(e);
+}
+function moveTooltip(e) {
+  const tt = document.getElementById("node-tooltip");
+  const container = document.getElementById("graph-container");
+  const rect = container.getBoundingClientRect();
+  tt.style.left = (e.clientX - rect.left + 14) + "px";
+  tt.style.top = (e.clientY - rect.top + 14) + "px";
+}
+function hideTooltip() {
+  document.getElementById("node-tooltip").classList.remove("visible");
+}
+
+/* ── Drawer (Bottom Log Panel) ────────────────────────────── */
+function toggleDrawer() {
+  state.drawerOpen = !state.drawerOpen;
+  const content = document.getElementById("drawer-content");
+  const btn = document.getElementById("drawer-toggle-btn");
+  if (state.drawerOpen) {
+    content.style.height = state.drawerHeight + "px";
+    content.classList.add("open");
+    btn.innerHTML = "&#9660;";
+    state.unseenLogs = 0;
+    updateDrawerBadge();
+  } else {
+    content.style.height = "0";
+    content.classList.remove("open");
+    btn.innerHTML = "&#9650;";
+  }
+  // Rebuild graph to fit new size
+  setTimeout(buildGraph, 280);
+}
+
+// Drag-to-resize
+(function initDrawerDrag() {
+  const handle = document.getElementById("drawer-handle");
+  let dragging = false;
+  let startY, startH;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (e.target.tagName === "BUTTON") return;
+    dragging = true;
+    startY = e.clientY;
+    startH = state.drawerHeight;
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dy = startY - e.clientY;
+    const newH = Math.max(100, Math.min(window.innerHeight * 0.6, startH + dy));
+    state.drawerHeight = newH;
+    if (state.drawerOpen) {
+      document.getElementById("drawer-content").style.height = newH + "px";
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (dragging) {
+      dragging = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setTimeout(buildGraph, 50);
+    }
+  });
+})();
+
+function updateDrawerBadge() {
+  const badge = document.getElementById("drawer-badge");
+  if (state.unseenLogs > 0 && !state.drawerOpen) {
+    badge.textContent = state.unseenLogs > 99 ? "99+" : state.unseenLogs;
+    badge.classList.add("visible");
+  } else {
+    badge.classList.remove("visible");
+  }
+}
+
+/* ── Auth Mode Toggle ─────────────────────────────────────── */
+let authMode = "key";
+function setAuthMode(mode) {
+  authMode = mode;
+  document.getElementById("auth-key-btn").classList.toggle("active", mode === "key");
+  document.getElementById("auth-oauth-btn").classList.toggle("active", mode === "oauth");
+  const input = document.getElementById("api-key");
+  input.placeholder = mode === "key" ? "sk-ant-... or sk-..." : "Bearer token from OAuth";
+  input.value = "";
+  document.getElementById("key-status").textContent = "";
+}
+
+// Check auth status
+(function() {
+  const savedModel = localStorage.getItem("nerfify_model");
+  if (savedModel) document.getElementById("model-select").value = savedModel;
+
+  fetch("/api/auth-status").then(r => r.json()).then(status => {
+    const keyInput = document.getElementById("api-key");
+    const keyStatus = document.getElementById("key-status");
+    const modelVal = document.getElementById("model-select").value;
+
+    let provider = "anthropic";
+    if (modelVal.startsWith("gpt") || modelVal.startsWith("o1") || modelVal.startsWith("o3")) provider = "openai";
+    else if (modelVal.startsWith("gemini")) provider = "gemini";
+    else if (modelVal.startsWith("deepseek")) provider = "deepseek";
+
+    const providerStatus = status[provider] || {};
+    const claudeSdk = status.claude_sdk || {};
+
+    if (claudeSdk.available && (provider === "anthropic" || modelVal.startsWith("claude"))) {
+      const src = status.anthropic.source;
+      const label = src === "claude_cli" ? "Claude CLI logged in" : src === "api_key" ? "API key in env" : "OAuth token in env";
+      keyStatus.textContent = label + " \u2014 no key needed";
+      keyStatus.className = "key-status set";
+      keyInput.placeholder = "Already authenticated (optional override)";
+    } else if (providerStatus.available) {
+      keyStatus.textContent = provider.charAt(0).toUpperCase() + provider.slice(1) + " key found in env";
+      keyStatus.className = "key-status set";
+      keyInput.placeholder = "Already authenticated (optional override)";
+    } else {
+      const saved = localStorage.getItem("nerfify_api_key");
+      const savedMode = localStorage.getItem("nerfify_auth_mode") || "key";
+      if (saved) { keyInput.value = saved; keyStatus.textContent = "Restored from browser"; keyStatus.className = "key-status set"; }
+      if (savedMode !== "key") setAuthMode(savedMode);
+    }
+  }).catch(() => {
+    const saved = localStorage.getItem("nerfify_api_key");
+    if (saved) { document.getElementById("api-key").value = saved; document.getElementById("key-status").textContent = "Restored"; document.getElementById("key-status").className = "key-status set"; }
+  });
+})();
+
+document.getElementById("model-select").addEventListener("change", function() {
+  localStorage.setItem("nerfify_model", this.value);
+  fetch("/api/auth-status").then(r => r.json()).then(status => {
+    const modelVal = this.value;
+    const keyStatus = document.getElementById("key-status");
+    const keyInput = document.getElementById("api-key");
+    let provider = "anthropic";
+    if (modelVal.startsWith("gpt") || modelVal.startsWith("o1") || modelVal.startsWith("o3")) provider = "openai";
+    else if (modelVal.startsWith("gemini")) provider = "gemini";
+    else if (modelVal.startsWith("deepseek")) provider = "deepseek";
+    const providerStatus = status[provider] || {};
+    const claudeSdk = status.claude_sdk || {};
+    if ((provider === "anthropic" && claudeSdk.available) || providerStatus.available) {
+      keyStatus.textContent = "Authenticated \u2014 no key needed";
+      keyStatus.className = "key-status set";
+      keyInput.placeholder = "Already authenticated (optional override)";
+    } else {
+      keyStatus.textContent = "API key required for " + provider;
+      keyStatus.className = "key-status";
+      keyInput.placeholder = "Enter API key for " + provider;
+    }
+  }).catch(() => {});
+});
+
+/* ── Pipeline Control ─────────────────────────────────────── */
+function startPipeline() {
+  if (state.running) return;
+
+  const arxiv  = document.getElementById("arxiv-url").value.trim();
+  const pdf    = document.getElementById("pdf-path").value.trim();
+  const method = document.getElementById("method-name").value.trim();
+  const data   = document.getElementById("data-path").value.trim();
+  const model  = document.getElementById("model-select").value;
+  const apiKey = document.getElementById("api-key").value.trim();
+
+  if (!arxiv && !pdf) { addLog("error", "Provide an arXiv URL/ID or a local PDF path."); return; }
+
+  if (apiKey) localStorage.setItem("nerfify_api_key", apiKey);
+  localStorage.setItem("nerfify_auth_mode", authMode);
+  localStorage.setItem("nerfify_model", model);
+
+  const payload = {
+    arxiv, pdf_path: pdf, method_name: method || null, data_path: data || null,
+    model, auth_mode: authMode, api_key: apiKey || null,
+    enable_review: document.getElementById("opt-review").checked,
+    enable_validation: document.getElementById("opt-validate").checked,
+    enable_smoke_test: document.getElementById("opt-smoke").checked,
+    enable_training: document.getElementById("opt-train").checked,
+    fast_mode: document.getElementById("opt-fast").checked,
+    tiered_models: document.getElementById("opt-tiered").checked,
+  };
+
+  setRunning(true);
+  clearLog();
+  resetAgents();
+  state.tokensIn = 0; state.tokensOut = 0; state.tokensTotal = 0; state.cost = null; state.subagentTokens = {}; state.numTurns = 0; state.durationMs = 0;
+  state.filesGenerated = [];
+  updateTokens();
+  updateFileProgress();
+  addLog("system", "Starting pipeline...");
+  document.getElementById("graph-watermark").classList.add("hidden");
+
+  // Auto-open drawer
+  if (!state.drawerOpen) toggleDrawer();
+
+  fetch("/api/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(r => {
+    if (!r.ok) throw new Error("Server responded " + r.status);
+    return r.json();
+  }).then(data => {
+    state.jobId = data.job_id;
+    addLog("system", "Job ID: " + data.job_id);
+    openEventSource(data.job_id);
+  }).catch(err => {
+    addLog("error", "Failed to start: " + err.message);
+    setRunning(false);
+  });
+}
+
+function openEventSource(jobId) {
+  const es = new EventSource("/api/events/" + jobId);
+  state.eventSource = es;
+
+  es.addEventListener("stage", e => {
+    const d = JSON.parse(e.data);
+    const name = d.stage || d.name || "unknown";
+    addLog("stage", "\u2501\u2501 " + name + (d.description ? " \u2014 " + d.description : ""));
+    setStage(name, d.description || d.message || "");
+  });
+
+  es.addEventListener("agent_active", e => {
+    const d = JSON.parse(e.data);
+    const agent = d.agent && d.agent !== "subagent" ? d.agent : "";
+    if (agent && state.agents.hasOwnProperty(agent)) {
+      setAgentState(agent, "active");
+      state.agentTasks[agent] = d.task || "";
+      addLog("agent", "\u25B6 " + agent + (d.task ? ": " + d.task : ""));
+    } else if (d.task) {
+      addLog("agent", "\u25B6 " + (d.agent || "agent") + ": " + d.task);
+    }
+  });
+
+  es.addEventListener("agent_done", e => {
+    const d = JSON.parse(e.data);
+    const agent = d.agent && d.agent !== "subagent" ? d.agent : "";
+    if (agent) {
+      setAgentState(agent, "done");
+      addLog("agent", "\u2713 " + agent + " completed");
+    } else {
+      addLog("system", "Subagent completed (" + (d.status || "done") + ")");
+    }
+  });
+
+  es.addEventListener("thinking", e => {
+    const d = JSON.parse(e.data);
+    const text = d.text || d.message || "";
+    if (text) addLog("thinking", "\u2026 " + text.slice(0, 400) + (text.length > 400 ? "..." : ""));
+  });
+
+  es.addEventListener("text", e => {
+    const d = JSON.parse(e.data);
+    const text = d.text || d.message || "";
+    if (text) addLog("text", text);
+  });
+
+  es.addEventListener("tool", e => {
+    const d = JSON.parse(e.data);
+    const callId = d.id || ("t-" + Date.now());
+    state.toolCalls[callId] = { name: d.name || d.tool || "?", input: d.input || null, output: null };
+    addLog("tool", "\u2692 " + (d.summary || d.name || d.tool || "tool"), callId);
+  });
+
+  es.addEventListener("tool_result", e => {
+    const d = JSON.parse(e.data);
+    if (d.id && state.toolCalls[d.id]) state.toolCalls[d.id].output = d.output;
+    const preview = (d.output || "").slice(0, 150);
+    if (preview) addLog("system", "  \u2514 " + preview);
+    if (d.file && !state.filesGenerated.includes(d.file)) {
+      state.filesGenerated.push(d.file);
+      updateFileProgress();
+    }
+  });
+
+  es.addEventListener("task_started", e => {
+    const d = JSON.parse(e.data);
+    const agent = d.agent || "subagent";
+    setAgentState(agent, "active");
+    state.agentTasks[agent] = d.task || "";
+    addLog("agent", "\u25B6 " + agent + (d.task ? ": " + d.task : " started"));
+  });
+
+  es.addEventListener("task_progress", e => {
+    const d = JSON.parse(e.data);
+    // Backend sends pre-accumulated total_tokens across all tasks
+    if (d.total_tokens && d.total_tokens > state.tokensTotal) {
+      state.tokensTotal = d.total_tokens;
+      updateTokens();
+    }
+    // Keep agent active in graph during progress
+    if (d.agent && d.agent !== "subagent" && d.agent !== "") {
+      if (state.agents[d.agent] !== "done") setAgentState(d.agent, "active");
+    }
+  });
+
+  es.addEventListener("bash", e => {
+    const d = JSON.parse(e.data);
+    const cmd = d.command || "";
+    const callId = d.id || ("b-" + Date.now());
+    state.toolCalls[callId] = { name: "Bash", input: { command: cmd }, output: null };
+    addLog("bash", "$ " + cmd, callId);
+  });
+
+  es.addEventListener("bash_output", e => {
+    const d = JSON.parse(e.data);
+    const out = (d.output || "").trim();
+    if (d.id && state.toolCalls[d.id]) state.toolCalls[d.id].output = out;
+    if (out) addLog("bash-out", out);
+  });
+
+  es.addEventListener("usage_final", e => {
+    const d = JSON.parse(e.data);
+    // The backend forwards the raw ResultMessage.usage dict merged with cost/turns.
+    // Try known key names for input/output tokens.
+    const inTok  = d.input_tokens  || d.inputTokens  || d.prompt_tokens || 0;
+    const outTok = d.output_tokens || d.outputTokens  || d.completion_tokens || 0;
+    if (inTok)  state.tokensIn  = inTok;
+    if (outTok) state.tokensOut = outTok;
+    // If we got a breakdown, use it for total; otherwise keep accumulated total
+    if (inTok || outTok) {
+      state.tokensTotal = inTok + outTok;
+    }
+    // Also check for a direct total_tokens field
+    if (d.total_tokens && d.total_tokens > state.tokensTotal) {
+      state.tokensTotal = d.total_tokens;
+    }
+    if (d.total_cost_usd != null) state.cost = d.total_cost_usd;
+    if (d.num_turns) state.numTurns = d.num_turns;
+    if (d.duration_ms) state.durationMs = d.duration_ms;
+    updateTokens();
+  });
+
+  es.addEventListener("task_done", e => {
+    const d = JSON.parse(e.data);
+    const agent = d.agent && d.agent !== "subagent" ? d.agent : "";
+    if (agent && state.agents.hasOwnProperty(agent)) setAgentState(agent, "done");
+  });
+
+  es.addEventListener("system", e => {
+    const d = JSON.parse(e.data);
+    addLog("system", d.message || "");
+  });
+
+  es.addEventListener("error", e => {
+    let msg = "Unknown error";
+    try { const d = JSON.parse(e.data); msg = d.message || d.error || msg; if (d.agent) setAgentState(d.agent, "error"); } catch (_) {}
+    addLog("error", "\u2717 " + msg);
+  });
+
+  es.addEventListener("result", e => {
+    const d = JSON.parse(e.data);
+    addLog("result", "\u2501\u2501 Pipeline Complete");
+    if (d.output_dir) addLog("result", "Output: " + d.output_dir);
+    if (d.message) addLog("result", d.message);
+  });
+
+  es.addEventListener("done", e => {
+    const d = JSON.parse(e.data);
+    es.close();
+    state.eventSource = null;
+    setRunning(false);
+    if (d.files && d.files.length) { state.filesGenerated = d.files; updateFileProgress(); }
+    addLog("result", "Pipeline finished. " + (d.files ? d.files.length + " files generated." : ""));
+  });
+
+  es.addEventListener("stopped", e => {
+    es.close();
+    state.eventSource = null;
+    setRunning(false);
+    addLog("error", "Pipeline stopped by user.");
+  });
+
+  es.addEventListener("heartbeat", () => {});
+
+  es.onerror = () => {
+    if (state.running) addLog("system", "Connection interrupted. Reconnecting...");
+  };
+}
+
+/* ── UI Helpers ────────────────────────────────────────────── */
+function stopPipeline() {
+  if (!state.running || !state.jobId) return;
+  fetch("/api/stop/" + state.jobId, { method: "POST" })
+    .then(() => addLog("system", "Stop signal sent..."))
+    .catch(err => addLog("error", "Failed to stop: " + err.message));
+}
+
+function setRunning(v) {
+  state.running = v;
+  document.getElementById("btn-run").disabled = v;
+  document.getElementById("btn-run").textContent = v ? "Running\u2026" : "Run Pipeline";
+  document.getElementById("btn-stop").style.display = v ? "block" : "none";
+  const dot = document.getElementById("status-dot");
+  const txt = document.getElementById("status-text");
+  if (v) {
+    dot.className = "status-dot running";
+    txt.textContent = "Running";
+    state.startTime = Date.now();
+    state.timerInterval = setInterval(updateTimer, 1000);
+  } else {
+    dot.className = "status-dot done";
+    txt.textContent = "Done";
+    clearInterval(state.timerInterval);
+    stopAllParticles();
+  }
+}
+
+function updateTimer() {
+  if (!state.startTime) return;
+  const s = Math.floor((Date.now() - state.startTime) / 1000);
+  document.getElementById("elapsed").textContent =
+    String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+
+function updateTokens() {
+  const inTok = state.tokensIn || 0;
+  const outTok = state.tokensOut || 0;
+  const total = state.tokensTotal || (inTok + outTok);
+
+  // Show breakdown if available, otherwise show "—" for in/out
+  document.getElementById("tok-in").textContent = inTok ? inTok.toLocaleString() : (total ? "—" : "0");
+  document.getElementById("tok-out").textContent = outTok ? outTok.toLocaleString() : (total ? "—" : "0");
+  document.getElementById("tok-total").textContent = total.toLocaleString();
+
+  const costEl = document.getElementById("tok-cost");
+  if (state.cost != null) {
+    costEl.textContent = "$" + state.cost.toFixed(4);
+  } else if (total > 0) {
+    // Estimate cost: ~$3/M input + ~$15/M output for Sonnet; use ~$6/M blended
+    costEl.textContent = "~$" + (total * 0.006 / 1000).toFixed(4);
+  } else {
+    costEl.innerHTML = "&mdash;";
+  }
+
+  // Show turns if available
+  if (state.numTurns > 0) {
+    document.getElementById("tok-turns-row").style.display = "flex";
+    document.getElementById("tok-turns").textContent = state.numTurns;
+  }
+
+  // Animate the token overlay briefly on update
+  const overlay = document.getElementById("token-overlay");
+  overlay.style.borderColor = "var(--accent)";
+  clearTimeout(window._tokFlash);
+  window._tokFlash = setTimeout(() => { overlay.style.borderColor = "var(--border)"; }, 300);
+}
+
+function setStage(name, desc) {
+  document.getElementById("stage-indicator").style.display = "flex";
+  document.getElementById("stage-placeholder").style.display = "none";
+  document.getElementById("stage-name").textContent = name + (desc ? " \u2014 " + desc : "");
+}
+
+function updateFileProgress() {
+  const el = document.getElementById("file-progress");
+  const ph = document.getElementById("file-placeholder");
+  if (state.filesGenerated.length === 0) {
+    ph.style.display = "block";
+    el.querySelectorAll(".file-progress-item").forEach(x => x.remove());
+    return;
+  }
+  ph.style.display = "none";
+  el.querySelectorAll(".file-progress-item").forEach(x => x.remove());
+  state.filesGenerated.forEach(f => {
+    const row = document.createElement("div");
+    row.className = "file-progress-item";
+    row.innerHTML = '<span>' + escapeHtml(f) + '</span><span class="check">\u2713</span>';
+    el.appendChild(row);
+  });
+}
+
+/* ── Log ──────────────────────────────────────────────────── */
+function addLog(type, text, toolCallId) {
+  const container = document.getElementById("log-container");
+  const line = document.createElement("div");
+  line.className = "log-line";
+
+  const ts = document.createElement("span");
+  ts.className = "log-ts";
+  const now = new Date();
+  ts.textContent = String(now.getHours()).padStart(2, "0") + ":" +
+                   String(now.getMinutes()).padStart(2, "0") + ":" +
+                   String(now.getSeconds()).padStart(2, "0");
+
+  const msg = document.createElement("span");
+  msg.className = "log-msg " + type;
+  msg.textContent = text;
+
+  if (toolCallId) {
+    msg.dataset.callId = toolCallId;
+    msg.addEventListener("click", () => showToolDetail(toolCallId));
+  }
+
+  line.appendChild(ts);
+  line.appendChild(msg);
+  container.appendChild(line);
+
+  state.logCount++;
+
+  // Update drawer latest preview
+  document.getElementById("drawer-latest").textContent = text.slice(0, 80);
+
+  // Auto-scroll if drawer is open
+  if (state.drawerOpen && state.autoScroll) {
+    container.scrollTop = container.scrollHeight;
+  }
+
+  // Badge for unseen
+  if (!state.drawerOpen) {
+    state.unseenLogs++;
+    updateDrawerBadge();
+  }
+}
+
+function clearLog() {
+  document.getElementById("log-container").innerHTML = "";
+  state.toolCalls = {};
+  state.logCount = 0;
+  state.unseenLogs = 0;
+  updateDrawerBadge();
+  document.getElementById("drawer-latest").textContent = "";
+}
+
+function copyLog() {
+  const lines = document.getElementById("log-container").querySelectorAll(".log-line");
+  let text = "";
+  lines.forEach(l => {
+    const ts = l.querySelector(".log-ts");
+    const msg = l.querySelector(".log-msg");
+    text += (ts ? ts.textContent : "") + "  " + (msg ? msg.textContent : "") + "\n";
+  });
+  navigator.clipboard.writeText(text).then(() => {
+    const btns = document.querySelectorAll(".btn-drawer");
+    btns[0].textContent = "Copied!";
+    setTimeout(() => btns[0].textContent = "Copy", 1200);
+  });
+}
+
+function showToolDetail(callId) {
+  const call = state.toolCalls[callId];
+  if (!call) return;
+  const el = document.getElementById("detail-selected");
+  let html = '<div class="detail-section-title" style="margin-top:0;">Tool: ' + escapeHtml(call.name) + '</div>';
+  if (call.input) {
+    html += '<div class="detail-section-title">Input</div>';
+    html += '<div class="detail-content">' + escapeHtml(typeof call.input === "string" ? call.input : JSON.stringify(call.input, null, 2)) + '</div>';
+  }
+  if (call.output) {
+    html += '<div class="detail-section-title" style="margin-top:10px;">Output</div>';
+    html += '<div class="detail-content">' + escapeHtml(typeof call.output === "string" ? call.output : JSON.stringify(call.output, null, 2)) + '</div>';
+  }
+  if (!call.output && !call.input) html += '<div class="detail-placeholder">No details available</div>';
+  el.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+/* ── Scroll-lock detection ────────────────────────────────── */
+document.getElementById("log-container").addEventListener("scroll", function() {
+  const { scrollTop, scrollHeight, clientHeight } = this;
+  state.autoScroll = (scrollHeight - scrollTop - clientHeight) < 40;
+});
+
+/* ── Init & Resize ────────────────────────────────────────── */
+function init() {
+  buildGraph();
+  window.addEventListener("resize", () => {
+    clearTimeout(window._resizeTimer);
+    window._resizeTimer = setTimeout(buildGraph, 150);
+  });
+}
+
+init();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,25 @@
+[project]
+name = "nerfify-crew"
+version = "0.1.0"
+description = "Multi-agent framework for converting NeRF research papers to NeRFStudio code using CrewAI"
+requires-python = ">=3.10"
+dependencies = [
+    "crewai[tools]>=0.118.0",
+    "langchain-community>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "langchain-google-genai>=2.1.0",
+    "ddgs>=8.0",
+    "mineru",
+    "pydantic>=2.0",
+    "flask>=3.0",
+    "python-dotenv>=1.0",
+    "httpx>=0.25",
+]
+
+[project.scripts]
+nerfify-crew = "main:main"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.backends._legacy:_Backend"

@@ -1,0 +1,17 @@
+[project]
+# REPLACE: Change name to your method's package name
+name = "nerfstudio-method-template"
+# REPLACE: Update description for your method
+description = "Nerfstudio method template — replace with your paper's method description."
+version = "0.1.0"
+
+dependencies = ["nerfstudio >= 0.3.0"]
+
+[tool.setuptools.packages.find]
+include = ["method_template*"]
+
+# REPLACE: Change the entry-point key and value to match your method
+# The key is the CLI name (used with `ns-train <key>`), and the value
+# points to your MethodSpecification object.
+[project.entry-points.'nerfstudio.method_configs']
+my-method = 'method_template.template_config:method_spec'

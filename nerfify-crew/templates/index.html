@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nerfify — Paper to Code Pipeline</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --cyan: #79c0ff;
+    --orange: #f0883e;
+    --radius: 8px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Global thin scrollbars ────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+  * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ──────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+    z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--orange), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: rgba(88, 166, 255, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(88, 166, 255, 0.25);
+    white-space: nowrap;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    margin-right: 6px;
+    vertical-align: middle;
+    transition: background 0.3s;
+  }
+  .status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-status 1.5s infinite; }
+  .status-dot.error   { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .status-dot.done    { background: var(--accent); }
+  @keyframes pulse-status {
+    0%, 100% { box-shadow: 0 0 4px var(--green); }
+    50% { box-shadow: 0 0 12px var(--green); }
+  }
+  #elapsed { font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace; font-size: 13px; }
+
+  /* ── Token stats (inline in pipeline strip) ─────────────── */
+  .token-overlay {
+    position: absolute;
+    bottom: 6px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    background: rgba(13,17,23,0.8);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    z-index: 20;
+  }
+  .token-overlay .tok-row { display: flex; align-items: center; gap: 4px; }
+  .token-overlay .tok-label { color: var(--text-dim); }
+  .token-overlay .tok-val { color: var(--text); }
+  .token-overlay .tok-val.cost { color: var(--yellow); }
+
+  /* ── Main layout ─────────────────────────────────────────── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+    position: relative;
+  }
+
+  /* ── Left sidebar ────────────────────────────────────────── */
+  .sidebar-left {
+    width: 340px;
+    min-width: 340px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    min-height: 0;
+    border-right: 1px solid var(--border);
+    z-index: 10;
+    background: var(--surface);
+  }
+
+  /* Cards */
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: visible;
+    flex-shrink: 0;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .card-body { padding: 14px; }
+
+  /* Form elements */
+  label.field-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    margin-top: 10px;
+  }
+  label.field-label:first-child { margin-top: 0; }
+  input[type="text"], input[type="password"], input[type="number"] {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--text-dim); opacity: 0.5; }
+  select {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  select option { background: var(--surface); color: var(--text); }
+  .key-status { font-size: 10px; margin-top: 3px; color: var(--text-dim); }
+  .key-status.set { color: var(--green); }
+  .inline-row { display: flex; gap: 8px; }
+  .inline-row > * { flex: 1; }
+
+  /* Toggle switch */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
+  .toggle-label { font-size: 12px; color: var(--text); }
+  .toggle {
+    position: relative;
+    width: 34px; height: 18px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border);
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background 0.25s;
+    outline: none;
+    border: none;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.25s;
+  }
+  .toggle:checked { background: var(--green); }
+  .toggle:checked::after { transform: translateX(16px); }
+
+  /* Buttons */
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-run {
+    flex: 1;
+    padding: 9px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, #238636, #2ea043);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: opacity 0.2s, filter 0.2s;
+  }
+  .btn-run:hover:not(:disabled) { filter: brightness(1.1); }
+  .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-stop {
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, #da3633, #f85149);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: none;
+    transition: filter 0.2s;
+  }
+  .btn-stop:hover { filter: brightness(1.1); }
+
+  /* ── Pipeline Strip (replaces full graph) ────────────────── */
+  .graph-area {
+    flex: 1;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+  }
+  /* ── Pipeline Hub (radial orchestrator + orbiting agents) ── */
+  .pipeline-strip {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-height: 180px;
+    overflow: hidden;
+  }
+
+  /* Orbit rings (decorative) */
+  .orbit-ring {
+    position: absolute;
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .orbit-ring-1 { width: 160px; height: 160px; }
+  .orbit-ring-2 { width: 280px; height: 280px; }
+  .orbit-ring-3 { width: 400px; height: 400px; }
+  .pipeline-strip.running .orbit-ring-1 { border-color: rgba(88,166,255,0.08); }
+  .pipeline-strip.running .orbit-ring-2 { border-color: rgba(88,166,255,0.05); }
+
+  /* Orchestrator hub — center node */
+  .orch-hub {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 20px;
+    border-radius: 50%;
+    width: 90px; height: 90px;
+    justify-content: center;
+    border: 2px solid var(--border);
+    background: var(--bg);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    transition: all 0.4s ease;
+  }
+  .orch-hub.running {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(88, 166, 255, 0.06);
+    box-shadow: 0 0 24px rgba(88, 166, 255, 0.15), 0 0 60px rgba(88, 166, 255, 0.05);
+  }
+  .orch-hub.done {
+    border-color: var(--green);
+    color: var(--green);
+    box-shadow: 0 0 20px rgba(63, 185, 80, 0.12);
+  }
+  .orch-hub .orch-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: all 0.3s;
+  }
+  .orch-hub.running .orch-dot {
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse-dot 1.5s infinite;
+  }
+  .orch-hub.done .orch-dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  /* Agent lane — positioned radially around hub */
+  .agent-lane {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+  }
+  .agent-lane::-webkit-scrollbar { height: 0; }
+
+  /* Connection line from agent to center */
+  .agent-connector {
+    position: absolute;
+    height: 1px;
+    background: var(--border);
+    transform-origin: left center;
+    opacity: 0.3;
+    transition: all 0.4s;
+    pointer-events: none;
+  }
+  .agent-connector.active { background: var(--cyan); opacity: 0.5; box-shadow: 0 0 4px var(--cyan); }
+  .agent-connector.done { background: var(--green); opacity: 0.4; }
+
+  /* Agent chip — orbiting nodes */
+  .agent-chip {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    white-space: nowrap;
+    transition: all 0.4s ease;
+    animation: chip-orbit-in 0.4s ease-out;
+    cursor: default;
+    pointer-events: auto;
+    z-index: 5;
+    transform: translate(-50%, -50%);
+  }
+  @keyframes chip-orbit-in {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  .agent-chip .chip-icon { font-size: 13px; }
+  .agent-chip .chip-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .agent-chip .chip-label { max-width: 70px; overflow: hidden; text-overflow: ellipsis; }
+  .agent-chip .chip-time {
+    font-size: 8px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-dim);
+    opacity: 0.6;
+  }
+  .agent-chip.active {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: rgba(121, 192, 255, 0.1);
+    box-shadow: 0 0 14px rgba(121, 192, 255, 0.2);
+  }
+  .agent-chip.active .chip-dot {
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+    animation: pulse-dot 1.2s infinite;
+  }
+  .agent-chip.done {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(63, 185, 80, 0.06);
+  }
+  .agent-chip.done .chip-dot { background: var(--green); }
+  .agent-chip.error {
+    border-color: var(--red);
+    color: var(--red);
+    background: rgba(248, 81, 73, 0.06);
+  }
+  .agent-chip.error .chip-dot { background: var(--red); }
+
+  .pipeline-empty {
+    position: absolute;
+    color: var(--text-dim);
+    opacity: 0.3;
+    font-size: 11px;
+    top: 50%; left: 50%;
+    transform: translate(-50%, 55px);
+  }
+
+  /* ── Bottom Drawer (Log) ─────────────────────────────────── */
+  .drawer-wrapper { position: relative; flex: 1; z-index: 50; display: flex; flex-direction: column; min-height: 0; }
+  .drawer-handle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .drawer-handle-left { display: flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 600; color: var(--text-dim); }
+  .drawer-grip { width: 40px; height: 4px; background: var(--border); border-radius: 2px; }
+  .drawer-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px; height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .drawer-badge.visible { opacity: 1; }
+  .drawer-handle-right { display: flex; align-items: center; gap: 8px; }
+  .drawer-latest {
+    font-size: 11px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-dim);
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.7;
+  }
+  .btn-drawer {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .btn-drawer:hover { color: var(--text); border-color: var(--text-dim); }
+  .drawer-content { flex: 1; overflow-y: auto; background: var(--bg); border-top: 1px solid var(--border); min-height: 0; }
+
+  #log-container {
+    padding: 10px 16px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    background: var(--bg);
+    overflow-y: auto;
+    height: 100%;
+  }
+
+  .log-line { padding: 1px 0; display: flex; gap: 10px; animation: log-fade-in 0.15s ease-out; }
+  @keyframes log-fade-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+  .log-ts { color: var(--text-dim); opacity: 0.4; font-size: 10px; flex-shrink: 0; min-width: 55px; }
+  .log-msg { white-space: pre-wrap; word-break: break-word; }
+  .log-msg.stage    { color: var(--green); font-weight: 700; }
+  .log-msg.agent    { color: var(--cyan); }
+  .log-msg.tool     { color: var(--yellow); }
+  .log-msg.thinking { color: var(--purple); opacity: 0.6; }
+  .log-msg.text     { color: var(--text); }
+  .log-msg.error    { color: var(--red); }
+  .log-msg.system   { color: var(--text-dim); opacity: 0.5; }
+  .log-msg.result   { color: var(--green); }
+  .log-msg.bash     { color: var(--yellow); font-weight: 600; }
+  .log-msg.bash-out { color: var(--text-dim); padding-left: 16px; border-left: 2px solid var(--border); margin-left: 4px; max-height: 200px; overflow-y: auto; font-size: 11px; }
+
+  /* ── Right panel — Terminal ──────────────────────────────── */
+  .sidebar-right {
+    width: 420px;
+    min-width: 420px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border);
+    background: #0a0e14;
+    min-height: 0;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .terminal-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .terminal-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .terminal-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.3s;
+  }
+  .terminal-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse-dot 1.5s infinite; }
+  .terminal-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .terminal-filter {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .terminal-filter:hover { color: var(--text); border-color: var(--text-dim); }
+  .terminal-filter.active { color: var(--accent); border-color: var(--accent); background: rgba(88,166,255,0.08); }
+  #terminal-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    background: #0a0e14;
+    min-height: 0;
+  }
+  #terminal-inner { min-height: 0; }
+  .term-line {
+    padding: 4px 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    transition: opacity 0.4s;
+  }
+  .term-line:first-child { background: rgba(255,255,255,0.02); }
+  .term-line.stdout { color: #c5c8c6; }
+  .term-line.stderr { color: #cc6666; background: rgba(204,102,102,0.06); }
+  .term-line .term-prefix { color: var(--text-dim); opacity: 0.35; margin-right: 8px; font-size: 10px; font-variant-numeric: tabular-nums; }
+  .term-line.agent-think { color: var(--purple); opacity: 0.85; }
+  .term-line.tool-call { color: var(--yellow); }
+  .term-line.tool-result { color: var(--text-dim); padding-left: 26px; border-left: 2px solid var(--border); margin-left: 14px; }
+  .term-line.agent-action { color: var(--cyan); font-weight: 600; }
+  .term-line.agent-answer { color: var(--green); }
+  .term-line.separator { color: var(--border); opacity: 0.4; padding: 1px 14px; }
+  .term-line.fading { opacity: 0.25; }
+  @keyframes term-slide-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .term-line.fresh { animation: term-slide-in 0.15s ease-out; }
+  .terminal-stats {
+    display: flex;
+    gap: 16px;
+    padding: 6px 14px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    font-size: 10px;
+    font-family: "SF Mono", monospace;
+    color: var(--text-dim);
+  }
+  .terminal-stats span { display: flex; align-items: center; gap: 4px; }
+
+  /* Detail sections below terminal */
+  .detail-section { margin-bottom: 10px; }
+  .detail-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim); margin-bottom: 6px; font-weight: 600; }
+  .detail-content {
+    font-family: "SF Mono", monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    max-height: 150px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .detail-placeholder { color: var(--text-dim); opacity: 0.35; font-size: 12px; text-align: center; padding: 30px 16px; }
+  .stage-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    padding: 8px 12px;
+    background: rgba(88, 166, 255, 0.06);
+    border: 1px solid rgba(88, 166, 255, 0.15);
+    border-radius: 6px;
+    color: var(--accent);
+  }
+  .stage-indicator .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse-dot 1.5s infinite; }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .file-progress-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 3px 0;
+    color: var(--text-dim);
+    font-family: "SF Mono", monospace;
+    animation: log-fade-in 0.2s ease-out;
+  }
+  .file-progress-item .check { color: var(--green); }
+
+  /* ── Responsive ──────────────────────────────────────────── */
+  @media (max-width: 999px) { .sidebar-right { display: none; } }
+  @media (max-width: 899px) {
+    .main { flex-direction: column; }
+    .sidebar-left { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid var(--border); max-height: 45vh; overflow-y: auto; }
+    .graph-area { min-height: 200px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <span class="logo">NERFIFY</span>
+    <span class="subtitle-badge">Paper &rarr; Code &bull; CrewAI Multi-Agent</span>
+  </div>
+  <div class="header-right">
+    <span><span class="status-dot" id="status-dot"></span><span id="status-text">Idle</span></span>
+    <span id="elapsed">00:00</span>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Left Sidebar -->
+  <aside class="sidebar-left">
+
+    <div class="card">
+      <div class="card-header">Paper Input</div>
+      <div class="card-body">
+        <label class="field-label">arXiv / PDF URL</label>
+        <input type="text" id="arxiv-url" placeholder="arXiv ID, URL, or direct PDF URL">
+        <label class="field-label">Local PDF Path</label>
+        <input type="text" id="pdf-path" placeholder="/path/to/paper.pdf">
+        <label class="field-label">Method Name (optional)</label>
+        <input type="text" id="method-name" placeholder="auto-detected from paper">
+        <label class="field-label">Data Path</label>
+        <input type="text" id="data-path" placeholder="training dataset path">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Model Configuration</div>
+      <div class="card-body">
+        <label class="field-label">Default Model</label>
+        <select id="model-select">
+          <optgroup label="Anthropic">
+            <option value="anthropic/claude-sonnet-4-20250514" selected>Claude Sonnet 4</option>
+            <option value="anthropic/claude-opus-4-6">Claude Opus 4.6</option>
+            <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="anthropic/claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+          </optgroup>
+          <optgroup label="OpenAI">
+            <option value="openai/gpt-5.4">GPT-5.4</option>
+            <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
+            <option value="openai/gpt-5.4-nano">GPT-5.4 Nano</option>
+            <option value="openai/gpt-5.3">GPT-5.3</option>
+            <option value="openai/gpt-5">GPT-5</option>
+            <option value="openai/gpt-4.1">GPT-4.1</option>
+            <option value="openai/gpt-4.1-mini">GPT-4.1 Mini</option>
+            <option value="openai/gpt-4o">GPT-4o</option>
+            <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+            <option value="openai/o3">o3</option>
+            <option value="openai/o4-mini">o4-mini</option>
+          </optgroup>
+          <optgroup label="Google">
+            <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
+          </optgroup>
+          <optgroup label="Local — Ollama (tool-use models only)">
+            <option value="ollama/qwen3:32b">Qwen 3 32B</option>
+            <option value="ollama/qwen2.5:32b">Qwen 2.5 32B</option>
+            <option value="ollama/llama3.3:70b">Llama 3.3 70B</option>
+            <option value="ollama/llama3.1:8b">Llama 3.1 8B</option>
+            <option value="ollama/mistral:7b">Mistral 7B</option>
+            <option value="ollama/command-r:35b">Command-R 35B</option>
+          </optgroup>
+        </select>
+        <label class="field-label">Coder Model (heavy lifter)</label>
+        <select id="coder-model-select">
+          <option value="">Same as default</option>
+          <optgroup label="Anthropic">
+            <option value="anthropic/claude-opus-4-6">Claude Opus 4.6</option>
+            <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="anthropic/claude-sonnet-4-20250514">Claude Sonnet 4</option>
+          </optgroup>
+          <optgroup label="OpenAI">
+            <option value="openai/gpt-5.4">GPT-5.4</option>
+            <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
+            <option value="openai/gpt-5.4-nano">GPT-5.4 Nano</option>
+            <option value="openai/gpt-5.3">GPT-5.3</option>
+            <option value="openai/gpt-5">GPT-5</option>
+            <option value="openai/gpt-4.1">GPT-4.1</option>
+            <option value="openai/gpt-4o">GPT-4o</option>
+            <option value="openai/o3">o3</option>
+          </optgroup>
+          <optgroup label="Google">
+            <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+          </optgroup>
+          <optgroup label="Local — Ollama">
+            <option value="ollama/qwen3:32b">Qwen 3 32B</option>
+            <option value="ollama/llama3.3:70b">Llama 3.3 70B</option>
+          </optgroup>
+        </select>
+        <label class="field-label">API Key</label>
+        <input type="password" id="api-key" placeholder="sk-ant-... or sk-...">
+        <div class="key-status" id="key-status"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Pipeline Options</div>
+      <div class="card-body">
+        <div class="toggle-row"><span class="toggle-label">Code Review</span><input type="checkbox" class="toggle" id="opt-review" checked></div>
+        <div class="toggle-row"><span class="toggle-label">Smoke Test</span><input type="checkbox" class="toggle" id="opt-smoke" checked></div>
+        <div class="toggle-row"><span class="toggle-label">Full Training</span><input type="checkbox" class="toggle" id="opt-train"></div>
+        <div style="border-top:1px solid var(--border); margin:8px 0 4px; padding-top:6px;">
+          <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">Optimizations</span>
+        </div>
+        <div class="toggle-row"><span class="toggle-label">Fast Mode</span><input type="checkbox" class="toggle" id="opt-fast"></div>
+        <div class="toggle-row"><span class="toggle-label">Tiered Models</span><input type="checkbox" class="toggle" id="opt-tiered"></div>
+        <div class="toggle-row"><span class="toggle-label">In-Context Examples</span><input type="checkbox" class="toggle" id="opt-examples" checked></div>
+        <div style="font-size:10px; color:var(--text-dim); margin-top:2px;">Disable to save ~9K tokens/request on coder agent</div>
+
+        <div style="border-top:1px solid var(--border); margin:8px 0 4px; padding-top:6px;">
+          <span style="font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">Training</span>
+        </div>
+        <div class="inline-row">
+          <div>
+            <label class="field-label">Max Iters</label>
+            <input type="number" id="max-iters" value="3000" min="10" step="100">
+          </div>
+          <div>
+            <label class="field-label">GPU</label>
+            <input type="number" id="gpu" value="0" min="0" max="7">
+          </div>
+        </div>
+        <label class="field-label">Dataset</label>
+        <select id="dataset">
+          <option value="blender" selected>Blender</option>
+          <option value="mipnerf360">MipNeRF-360</option>
+          <option value="llff">LLFF</option>
+        </select>
+        <div class="inline-row">
+          <div>
+            <label class="field-label">Scenes</label>
+            <input type="text" id="scenes" value="chair" placeholder="chair drums lego">
+          </div>
+          <div>
+            <label class="field-label">Expected PSNR</label>
+            <input type="number" id="expected-psnr" value="31.0" step="0.1">
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn-run" id="btn-run" onclick="startPipeline()">Run Pipeline</button>
+          <button class="btn-stop" id="btn-stop" onclick="stopPipeline()">Stop</button>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Center: Pipeline Strip + Drawer -->
+  <div class="graph-area">
+    <div class="pipeline-strip" id="pipeline-strip">
+      <div class="orbit-ring orbit-ring-1"></div>
+      <div class="orbit-ring orbit-ring-2"></div>
+      <div class="orbit-ring orbit-ring-3"></div>
+      <div class="orch-hub" id="orch-hub">
+        <span class="orch-dot"></span>
+        <span>Orch</span>
+      </div>
+      <div class="agent-lane" id="agent-lane">
+        <span class="pipeline-empty" id="pipeline-empty">Waiting for pipeline&hellip;</span>
+      </div>
+      <div class="token-overlay" id="token-overlay">
+        <div class="tok-row"><span class="tok-label">In</span><span class="tok-val" id="tok-prompt">0</span></div>
+        <div class="tok-row"><span class="tok-label">Out</span><span class="tok-val" id="tok-completion">0</span></div>
+        <div class="tok-row" style="border-left:1px solid var(--border); margin-left:4px; padding-left:6px;"><span class="tok-label">Total</span><span class="tok-val" style="font-weight:700;" id="tok-total">0</span></div>
+        <div class="tok-row"><span class="tok-label">Calls</span><span class="tok-val" id="tok-requests">0</span></div>
+      </div>
+    </div>
+
+    <!-- Bottom Drawer -->
+    <div class="drawer-wrapper" id="drawer-wrapper">
+      <div class="drawer-handle" id="drawer-handle">
+        <div class="drawer-handle-left">
+          <div class="drawer-grip"></div>
+          <span>Pipeline Log</span>
+          <span class="drawer-badge" id="drawer-badge">0</span>
+        </div>
+        <div class="drawer-handle-right">
+          <span class="drawer-latest" id="drawer-latest"></span>
+          <button class="btn-drawer" onclick="copyLog()">Copy</button>
+          <button class="btn-drawer" onclick="clearLog()">Clear</button>
+          <button class="btn-drawer" id="drawer-toggle-btn" onclick="toggleDrawer()">&#9660;</button>
+        </div>
+      </div>
+      <div class="drawer-content open" id="drawer-content">
+        <div id="log-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel — Live Terminal -->
+  <aside class="sidebar-right">
+    <div class="terminal-header">
+      <div class="terminal-header-left">
+        <div class="terminal-dot" id="terminal-dot"></div>
+        <span class="terminal-title">Agent Terminal</span>
+      </div>
+      <div class="terminal-header-right">
+        <button class="terminal-filter active" data-filter="all" onclick="setTermFilter('all',this)">All</button>
+        <button class="terminal-filter" data-filter="agent" onclick="setTermFilter('agent',this)">Agent</button>
+        <button class="terminal-filter" data-filter="tool" onclick="setTermFilter('tool',this)">Tools</button>
+        <button class="terminal-filter" data-filter="stderr" onclick="setTermFilter('stderr',this)">Errors</button>
+        <button class="btn-drawer" onclick="clearTerminal()">Clear</button>
+      </div>
+    </div>
+    <div id="terminal-container">
+      <div id="terminal-inner">
+        <div class="term-line stdout" style="color:var(--text-dim); opacity:0.4;">Waiting for pipeline to start…</div>
+      </div>
+    </div>
+    <div class="terminal-stats">
+      <span>Lines: <strong id="term-line-count">0</strong></span>
+      <span id="stage-indicator" style="display:none;"><span class="dot"></span>&nbsp;<span id="stage-name">&mdash;</span></span>
+      <span class="detail-placeholder" id="stage-placeholder" style="padding:0; font-size:10px;">Idle</span>
+    </div>
+    <!-- Live Viewer (shown during training) -->
+    <div id="viewer-section" style="display:none; border-top:1px solid var(--border); flex-shrink:0;">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:var(--surface);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="terminal-dot live"></div>
+          <span style="font-size:11px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:0.5px;">Live Training Viewer</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn-drawer" onclick="toggleViewer()">Collapse</button>
+          <a id="viewer-link" href="#" target="_blank" class="btn-drawer" style="text-decoration:none;">Open ↗</a>
+        </div>
+      </div>
+      <div id="viewer-frame-container" style="height:350px; background:#000;">
+        <iframe id="viewer-iframe" style="width:100%; height:100%; border:none;" src="about:blank"></iframe>
+      </div>
+    </div>
+    <!-- Detail sections collapsed below -->
+    <div style="border-top:1px solid var(--border); max-height: 200px; overflow-y:auto; padding: 8px 12px; background: var(--surface); flex-shrink:0;">
+      <div class="detail-section">
+        <div class="detail-section-title">Latest Output</div>
+        <div id="detail-output">
+          <div class="detail-placeholder" style="padding:8px;">Output will appear here</div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Files Generated</div>
+        <div id="file-progress">
+          <div class="detail-placeholder" id="file-placeholder" style="padding:8px;">No files yet</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   NERFIFY-CREW — DYNAMIC PIPELINE STRIP UI
+   ═══════════════════════════════════════════════════════════════ */
+
+const AGENT_META = {
+  parser:            { icon: "\uD83D\uDCC4", label: "Parser" },
+  citation_recovery: { icon: "\uD83D\uDD0D", label: "Citations" },
+  planner:           { icon: "\uD83D\uDCCB", label: "Planner" },
+  coder:             { icon: "\u2328\uFE0F",  label: "Coder" },
+  reviewer:          { icon: "\uD83D\uDD0E", label: "Reviewer" },
+  tester:            { icon: "\uD83E\uDDEA", label: "Tester" },
+  debugger:          { icon: "\uD83D\uDC1B", label: "Debugger" },
+};
+
+let state = {
+  running: false,
+  jobId: null,
+  eventSource: null,
+  timerInterval: null,
+  startTime: null,
+  tokensTotal: 0,
+  tokensPrompt: 0,
+  tokensCompletion: 0,
+  tokensRequests: 0,
+  agents: {},
+  agentTasks: {},
+  agentOrder: [],
+  agentStartTimes: {},
+  autoScroll: true,
+  filesGenerated: [],
+  drawerOpen: true,
+  logCount: 0,
+  unseenLogs: 0,
+};
+
+/* ── Pipeline Hub (radial orchestrator + orbiting agents) ── */
+const ORBIT_RADIUS = 110; // px from center to agent chip
+
+function _createChip(agentId) {
+  const meta = AGENT_META[agentId] || { icon: "\u2699\uFE0F", label: agentId };
+  const chip = document.createElement("div");
+  chip.className = "agent-chip";
+  chip.id = "chip-" + agentId;
+  chip.innerHTML =
+    `<span class="chip-icon">${meta.icon}</span>` +
+    `<span class="chip-dot"></span>` +
+    `<span class="chip-label">${meta.label}</span>` +
+    `<span class="chip-time"></span>`;
+  return chip;
+}
+
+function _layoutAgents() {
+  // Position all agent chips in a circle around the center
+  const lane = document.getElementById("agent-lane");
+  const strip = document.getElementById("pipeline-strip");
+  const cx = strip.offsetWidth / 2;
+  const cy = strip.offsetHeight / 2;
+  const n = state.agentOrder.length;
+  if (n === 0) return;
+
+  // Distribute evenly, starting from top (-90deg)
+  const startAngle = -Math.PI / 2;
+  const step = (2 * Math.PI) / n;
+
+  state.agentOrder.forEach((agentId, i) => {
+    const chip = document.getElementById("chip-" + agentId);
+    const conn = document.getElementById("conn-" + agentId);
+    if (!chip) return;
+    const angle = startAngle + i * step;
+    const x = cx + ORBIT_RADIUS * Math.cos(angle);
+    const y = cy + ORBIT_RADIUS * Math.sin(angle);
+    chip.style.left = x + "px";
+    chip.style.top = y + "px";
+
+    // Update connector line
+    if (conn) {
+      const dx = x - cx;
+      const dy = y - cy;
+      const dist = Math.sqrt(dx*dx + dy*dy) - 45; // stop short of hub
+      const deg = Math.atan2(dy, dx) * 180 / Math.PI;
+      conn.style.left = cx + "px";
+      conn.style.top = cy + "px";
+      conn.style.width = Math.max(0, dist) + "px";
+      conn.style.transform = `rotate(${deg}deg)`;
+    }
+  });
+}
+
+function getOrCreateChip(agentId) {
+  let chip = document.getElementById("chip-" + agentId);
+  if (chip) return chip;
+
+  const lane = document.getElementById("agent-lane");
+  const empty = document.getElementById("pipeline-empty");
+  if (empty) empty.remove();
+
+  // Create connector line
+  const conn = document.createElement("div");
+  conn.className = "agent-connector";
+  conn.id = "conn-" + agentId;
+  lane.appendChild(conn);
+
+  // Create chip
+  chip = _createChip(agentId);
+  lane.appendChild(chip);
+  state.agentOrder.push(agentId);
+
+  // Re-layout all agents
+  _layoutAgents();
+  return chip;
+}
+
+function setAgentState(name, st) {
+  state.agents[name] = st;
+  const chip = getOrCreateChip(name);
+  const conn = document.getElementById("conn-" + name);
+  chip.classList.remove("active", "done", "error");
+  if (conn) conn.classList.remove("active", "done");
+  if (st !== "idle") {
+    chip.classList.add(st);
+    if (conn) conn.classList.add(st);
+  }
+
+  // Orchestrator hub + strip state
+  const hub = document.getElementById("orch-hub");
+  const strip = document.getElementById("pipeline-strip");
+  const activeCount = Object.values(state.agents).filter(s => s === "active").length;
+  if (activeCount > 0) {
+    hub.classList.add("running");
+    hub.classList.remove("done");
+    strip.classList.add("running");
+  } else if (Object.values(state.agents).length > 0 && activeCount === 0) {
+    hub.classList.remove("running");
+    strip.classList.remove("running");
+  }
+
+  if (st === "active") {
+    state.agentStartTimes[name] = Date.now();
+  } else if (st === "done" || st === "error") {
+    const startMs = state.agentStartTimes[name];
+    if (startMs) {
+      const elapsed = Math.round((Date.now() - startMs) / 1000);
+      const timeEl = chip.querySelector(".chip-time");
+      if (timeEl) timeEl.textContent = elapsed + "s";
+    }
+  }
+}
+
+// Re-layout on window resize
+window.addEventListener("resize", _layoutAgents);
+
+function resetAgents() {
+  state.agents = {};
+  state.agentTasks = {};
+  state.agentOrder = [];
+  state.agentStartTimes = {};
+  const lane = document.getElementById("agent-lane");
+  lane.innerHTML = '<span class="pipeline-empty" id="pipeline-empty">Waiting for pipeline\u2026</span>';
+  const hub = document.getElementById("orch-hub");
+  const strip = document.getElementById("pipeline-strip");
+  hub.classList.remove("running", "done");
+  strip.classList.remove("running");
+}
+
+/* ── Drawer ────────────────────────────────────────────────── */
+function toggleDrawer() {
+  state.drawerOpen = !state.drawerOpen;
+  const content = document.getElementById("drawer-content");
+  const btn = document.getElementById("drawer-toggle-btn");
+  if (state.drawerOpen) {
+    content.style.display = "";
+    btn.innerHTML = "&#9660;";
+    state.unseenLogs = 0;
+    updateDrawerBadge();
+  } else {
+    content.style.display = "none";
+    btn.innerHTML = "&#9650;";
+  }
+}
+function updateDrawerBadge() {
+  const badge = document.getElementById("drawer-badge");
+  if (state.unseenLogs > 0 && !state.drawerOpen) { badge.textContent = state.unseenLogs > 99 ? "99+" : state.unseenLogs; badge.classList.add("visible"); }
+  else badge.classList.remove("visible");
+}
+
+/* ── Logging ───────────────────────────────────────────────── */
+const LOG_MAX_LINES = 500;
+const LOG_PRUNE_BATCH = 100;
+
+function addLog(type, msg) {
+  const container = document.getElementById("log-container");
+  const line = document.createElement("div");
+  line.className = "log-line";
+  const elapsed = state.startTime ? ((Date.now() - state.startTime) / 1000).toFixed(0) + "s" : "--";
+  line.innerHTML = `<span class="log-ts">${elapsed}</span><span class="log-msg ${type}">${escapeHtml(msg)}</span>`;
+  container.appendChild(line);
+  state.logCount++;
+  // Cap log lines
+  if (state.logCount > LOG_MAX_LINES) {
+    const remove = Math.min(LOG_PRUNE_BATCH, state.logCount - LOG_MAX_LINES + LOG_PRUNE_BATCH);
+    for (let i = 0; i < remove && container.firstChild; i++) {
+      container.removeChild(container.firstChild);
+      state.logCount--;
+    }
+  }
+  // Auto-scroll only if user is near bottom
+  const logAtBottom = (container.scrollHeight - container.scrollTop - container.clientHeight) < 80;
+  if (logAtBottom) container.scrollTop = container.scrollHeight;
+  document.getElementById("drawer-latest").textContent = msg.slice(0, 100);
+  if (!state.drawerOpen) { state.unseenLogs++; updateDrawerBadge(); }
+}
+function escapeHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function clearLog() { document.getElementById("log-container").innerHTML = ""; state.logCount = 0; }
+function copyLog() {
+  const text = Array.from(document.querySelectorAll("#log-container .log-msg")).map(el => el.textContent).join("\n");
+  navigator.clipboard.writeText(text);
+}
+
+/* ── Auth check ────────────────────────────────────────────── */
+(function() {
+  fetch("/api/auth-status").then(r => r.json()).then(status => {
+    const keyStatus = document.getElementById("key-status");
+    if (status.anthropic && status.anthropic.available) {
+      keyStatus.textContent = "Anthropic key found in env";
+      keyStatus.className = "key-status set";
+    } else if (status.openai && status.openai.available) {
+      keyStatus.textContent = "OpenAI key found in env";
+      keyStatus.className = "key-status set";
+    } else if (status.gemini && status.gemini.available) {
+      keyStatus.textContent = "Google key found in env";
+      keyStatus.className = "key-status set";
+    }
+  }).catch(() => {});
+})();
+
+/* ── Pipeline Control ──────────────────────────────────────── */
+function startPipeline() {
+  if (state.running) return;
+  const arxiv  = document.getElementById("arxiv-url").value.trim();
+  const pdf    = document.getElementById("pdf-path").value.trim();
+  const method = document.getElementById("method-name").value.trim();
+  const data   = document.getElementById("data-path").value.trim();
+  const model  = document.getElementById("model-select").value;
+  const coderModel = document.getElementById("coder-model-select").value;
+  const apiKey = document.getElementById("api-key").value.trim();
+
+  if (!arxiv && !pdf) { addLog("error", "Provide an arXiv URL/ID or a local PDF path."); return; }
+
+  const scenesVal = document.getElementById("scenes").value.trim();
+  const expectedPsnr = document.getElementById("expected-psnr").value.trim();
+
+  const payload = {
+    arxiv, pdf_path: pdf, method_name: method || null, data_path: data || null,
+    model, coder_model: coderModel || null, api_key: apiKey || null,
+    enable_review: document.getElementById("opt-review").checked,
+    enable_smoke_test: document.getElementById("opt-smoke").checked,
+    enable_training: document.getElementById("opt-train").checked,
+    fast_mode: document.getElementById("opt-fast").checked,
+    tiered_models: document.getElementById("opt-tiered").checked,
+    include_examples: document.getElementById("opt-examples").checked,
+    max_iters: parseInt(document.getElementById("max-iters").value) || 3000,
+    gpu: parseInt(document.getElementById("gpu").value) || 0,
+    dataset: document.getElementById("dataset").value,
+    scenes: scenesVal ? scenesVal.split(/\s+/) : null,
+    expected_psnr: expectedPsnr ? parseFloat(expectedPsnr) : null,
+  };
+
+  state.running = true;
+  state.startTime = Date.now();
+  state.tokensTotal = 0;
+  state.tokensPrompt = 0;
+  state.tokensCompletion = 0;
+  state.tokensRequests = 0;
+  state.filesGenerated = [];
+
+  document.getElementById("btn-run").disabled = true;
+  document.getElementById("btn-stop").style.display = "block";
+  document.getElementById("status-dot").className = "status-dot running";
+  document.getElementById("status-text").textContent = "Running";
+
+  state.timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - state.startTime) / 1000);
+    const m = Math.floor(s / 60);
+    document.getElementById("elapsed").textContent = String(m).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  }, 1000);
+
+  resetAgents();
+  clearLog();
+  clearTerminal();
+  document.getElementById("terminal-dot").classList.add("live");
+  if (!state.drawerOpen) toggleDrawer();
+  addLog("stage", "Starting Nerfify pipeline...");
+
+  fetch("/api/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { pipelineDone("error"); addLog("error", data.error); return; }
+    state.jobId = data.job_id;
+    addLog("system", `Job ${data.job_id} started (run: ${data.run_id})`);
+    connectSSE(data.job_id);
+  })
+  .catch(err => { pipelineDone("error"); addLog("error", err.toString()); });
+}
+
+function stopPipeline() {
+  if (!state.jobId) return;
+  fetch(`/api/stop/${state.jobId}`, { method: "POST" }).catch(() => {});
+}
+
+function connectSSE(jobId) {
+  const es = new EventSource(`/api/events/${jobId}`);
+  state.eventSource = es;
+
+  es.addEventListener("stage", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("stage", d.message || d.stage);
+    document.getElementById("stage-placeholder").style.display = "none";
+    document.getElementById("stage-indicator").style.display = "flex";
+    document.getElementById("stage-name").textContent = d.message || d.stage;
+  });
+
+  es.addEventListener("agent_active", (e) => {
+    const d = JSON.parse(e.data);
+    const agent = d.agent;
+    if (agent && agent !== "subagent") {
+      setAgentState(agent, "active");
+      state.agentTasks[agent] = d.task || "";
+    }
+    addLog("agent", d.message || `${agent} active`);
+    document.getElementById("stage-name").textContent = d.message || `${agent} running`;
+  });
+
+  es.addEventListener("agent_done", (e) => {
+    const d = JSON.parse(e.data);
+    const agent = d.agent;
+    const status = d.status || "completed";
+    if (agent && agent !== "subagent") {
+      setAgentState(agent, status === "error" ? "error" : "done");
+    }
+    addLog(status === "error" ? "error" : "agent", d.message || `${agent} ${status}`);
+  });
+
+  es.addEventListener("text", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("text", d.message || d.text || "");
+    const out = document.getElementById("detail-output");
+    out.innerHTML = `<div class="detail-content">${escapeHtml(d.text || d.message || "")}</div>`;
+  });
+
+  es.addEventListener("tool", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("tool", d.message || `${d.name}: ${d.summary}`);
+  });
+
+  es.addEventListener("bash", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("bash", d.message || `$ ${d.command}`);
+  });
+
+  es.addEventListener("bash_output", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("bash-out", d.output || d.message || "");
+  });
+
+  es.addEventListener("thinking", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("thinking", d.message || d.text || "");
+  });
+
+  es.addEventListener("error", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("error", d.message || "Unknown error");
+  });
+
+  es.addEventListener("token_update", (e) => {
+    const d = JSON.parse(e.data);
+    state.tokensTotal = d.total_tokens || 0;
+    state.tokensPrompt = d.prompt_tokens || 0;
+    state.tokensCompletion = d.completion_tokens || 0;
+    state.tokensRequests = d.requests || 0;
+    updateTokenDisplay();
+  });
+
+  es.addEventListener("usage_final", (e) => {
+    const d = JSON.parse(e.data);
+    state.tokensTotal = d.total_tokens || 0;
+    state.tokensPrompt = d.prompt_tokens || 0;
+    state.tokensCompletion = d.completion_tokens || 0;
+    updateTokenDisplay();
+  });
+
+  es.addEventListener("task_progress", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.total_tokens) {
+      state.tokensTotal = d.total_tokens;
+      updateTokenDisplay();
+    }
+  });
+
+  es.addEventListener("result", (e) => {
+    const d = JSON.parse(e.data);
+    addLog("result", d.message || "Pipeline complete");
+    const out = document.getElementById("detail-output");
+    out.innerHTML = `<div class="detail-content">${escapeHtml(d.message || "")}</div>`;
+  });
+
+  es.addEventListener("done", (e) => {
+    const d = JSON.parse(e.data);
+    const status = d.status || "completed";
+    pipelineDone(status === "completed" ? "done" : "error");
+    addLog("stage", `Pipeline finished (${d.duration || 0}s)`);
+    if (d.files && d.files.length > 0) {
+      const fp = document.getElementById("file-progress");
+      document.getElementById("file-placeholder")?.remove();
+      d.files.forEach(f => {
+        const item = document.createElement("div");
+        item.className = "file-progress-item";
+        item.innerHTML = `<span>${escapeHtml(f)}</span><span class="check">\u2713</span>`;
+        fp.appendChild(item);
+      });
+    }
+    es.close();
+  });
+
+  es.addEventListener("stopped", (e) => {
+    const d = JSON.parse(e.data);
+    pipelineDone("error");
+    addLog("error", d.message || "Stopped");
+    es.close();
+  });
+
+  es.addEventListener("viewer_ready", (e) => {
+    const d = JSON.parse(e.data);
+    const url = d.url;
+    if (url) {
+      showViewer(url);
+      addLog("stage", `Live viewer available: ${url}`);
+    }
+  });
+
+  es.addEventListener("console", (e) => {
+    const d = JSON.parse(e.data);
+    addTermLine(d.stream || "stdout", d.text || d.message || "");
+  });
+
+  es.onerror = () => {
+    if (state.running) { pipelineDone("error"); addLog("error", "Connection lost"); }
+    es.close();
+  };
+}
+
+function fmtTokens(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+function updateTokenDisplay() {
+  document.getElementById("tok-total").textContent = fmtTokens(state.tokensTotal);
+  document.getElementById("tok-prompt").textContent = fmtTokens(state.tokensPrompt);
+  document.getElementById("tok-completion").textContent = fmtTokens(state.tokensCompletion);
+  document.getElementById("tok-requests").textContent = state.tokensRequests;
+}
+
+function pipelineDone(status) {
+  state.running = false;
+  if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
+  document.getElementById("btn-run").disabled = false;
+  document.getElementById("btn-stop").style.display = "none";
+  document.getElementById("status-dot").className = "status-dot " + status;
+  document.getElementById("status-text").textContent = status === "done" ? "Complete" : "Error";
+  document.getElementById("stage-indicator").style.display = "none";
+  document.getElementById("stage-placeholder").style.display = "block";
+  document.getElementById("stage-placeholder").textContent = status === "done" ? "Pipeline complete" : "Pipeline ended";
+  document.getElementById("terminal-dot").classList.remove("live");
+  const hub = document.getElementById("orch-hub");
+  const strip = document.getElementById("pipeline-strip");
+  hub.classList.remove("running");
+  strip.classList.remove("running");
+  if (status === "done") hub.classList.add("done");
+}
+
+/* ── Terminal (stack — newest on top) ─────────────────────── */
+let termLineCount = 0;
+let termFilter = "all";
+const TERM_MAX_LINES = 200;
+const TERM_FADE_AFTER = 150;  // start fading lines beyond this
+
+function classifyTermLine(text) {
+  const t = text.toLowerCase();
+  if (t.startsWith("## agent:") || t.startsWith("# agent:") || t.includes("working agent:") || t.includes("starting task:"))
+    return "agent-action";
+  if (t.startsWith("## thought:") || t.startsWith("thought:") || t.includes("i need to") || t.includes("i'll ") || t.includes("let me"))
+    return "agent-think";
+  if (t.startsWith("## using tool:") || t.startsWith("tool:") || t.includes("action: ") || t.includes("action_input:"))
+    return "tool-call";
+  if (t.startsWith("## tool output") || t.startsWith("observation:"))
+    return "tool-result";
+  if (t.startsWith("## final answer") || t.startsWith("final answer:"))
+    return "agent-answer";
+  if (/^[═─]{5,}/.test(t) || /^-{5,}/.test(t))
+    return "separator";
+  return "";
+}
+
+function termFilterTag(text, stream) {
+  if (stream === "stderr") return "stderr";
+  const cls = classifyTermLine(text);
+  if (cls.startsWith("agent")) return "agent";
+  if (cls.startsWith("tool")) return "tool";
+  return "stdout";
+}
+
+function addTermLine(stream, text) {
+  const inner = document.getElementById("terminal-inner");
+  if (termLineCount === 0) inner.innerHTML = "";
+
+  document.getElementById("terminal-dot").classList.add("live");
+
+  const line = document.createElement("div");
+  const cls = classifyTermLine(text);
+  const filterTag = termFilterTag(text, stream);
+  line.className = `term-line fresh ${stream} ${cls}`;
+  line.setAttribute("data-filter", filterTag);
+
+  if (termFilter !== "all" && filterTag !== termFilter) {
+    line.style.display = "none";
+  }
+
+  const elapsed = state.startTime ? ((Date.now() - state.startTime) / 1000).toFixed(0) + "s" : "";
+  line.innerHTML = `<span class="term-prefix">${elapsed}</span>${escapeHtml(text)}`;
+
+  // Stack: newest on top
+  inner.prepend(line);
+  termLineCount++;
+
+  // Remove animation class after it plays
+  requestAnimationFrame(() => { setTimeout(() => line.classList.remove("fresh"), 160); });
+
+  // Fade old lines & prune beyond cap
+  const children = inner.children;
+  if (termLineCount > TERM_FADE_AFTER) {
+    for (let i = TERM_FADE_AFTER; i < children.length; i++) {
+      children[i].classList.add("fading");
+    }
+  }
+  while (termLineCount > TERM_MAX_LINES && inner.lastChild) {
+    inner.removeChild(inner.lastChild);
+    termLineCount--;
+  }
+
+  document.getElementById("term-line-count").textContent = termLineCount;
+}
+
+function clearTerminal() {
+  document.getElementById("terminal-inner").innerHTML = "";
+  termLineCount = 0;
+  document.getElementById("term-line-count").textContent = "0";
+}
+
+/* ── Live Viewer ─────────────────────────────────────────── */
+let viewerVisible = true;
+
+function showViewer(url) {
+  const section = document.getElementById("viewer-section");
+  const iframe = document.getElementById("viewer-iframe");
+  const link = document.getElementById("viewer-link");
+  section.style.display = "block";
+  iframe.src = url;
+  link.href = url;
+  viewerVisible = true;
+}
+
+function toggleViewer() {
+  const container = document.getElementById("viewer-frame-container");
+  viewerVisible = !viewerVisible;
+  container.style.display = viewerVisible ? "block" : "none";
+}
+
+function hideViewer() {
+  document.getElementById("viewer-section").style.display = "none";
+  document.getElementById("viewer-iframe").src = "about:blank";
+}
+
+function setTermFilter(filter, btn) {
+  termFilter = filter;
+  // Update button styles
+  document.querySelectorAll(".terminal-filter").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  // Show/hide lines
+  document.querySelectorAll("#terminal-inner .term-line").forEach(line => {
+    const tag = line.getAttribute("data-filter");
+    line.style.display = (filter === "all" || tag === filter) ? "" : "none";
+  });
+}
+
+/* ── Init ──────────────────────────────────────────────────── */
+</script>
+</body>
+</html>
