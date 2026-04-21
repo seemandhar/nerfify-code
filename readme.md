@@ -1,14 +1,36 @@
-# NERFIFY: A Multi-Agent Framework for Turning NeRF Papers into Code
+<div align="center">
 
-### [Project Page](https://jainsee24.github.io/NERFIFY/) | [arXiv](https://arxiv.org/abs/2603.00805) | [Interactive Demo](https://seemandhar.github.io/nerfify-code/demo.html)
+# 🔥 NERFIFY
 
-> Converting research papers into trainable Nerfstudio plugins, from weeks to minutes.
+### *A Multi-Agent Framework for Turning NeRF Papers into Code*
 
-[Seemandhar Jain](https://seemandhar.github.io/), [Keshav Gupta](#), [Kunal Gupta](https://kunalgupta.me/), [Manmohan Chandraker](https://cseweb.ucsd.edu/~mkchandraker/)
+**🔥 Convert any NeRF paper into trainable code. 🔥**
 
-University of California, San Diego
+[![CVPR 2026 Highlight](https://img.shields.io/badge/CVPR%202026-%F0%9F%94%A5%20Highlight-red?style=for-the-badge)](https://cvpr.thecvf.com/)
+[![Project Page](https://img.shields.io/badge/%F0%9F%8C%90-Project%20Page-4b8bf5?style=for-the-badge)](https://jainsee24.github.io/NERFIFY/)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.00805-b31b1b?style=for-the-badge&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2603.00805)
+[![Paper PDF](https://img.shields.io/badge/%F0%9F%93%84-Paper%20PDF-ef4444?style=for-the-badge)](https://arxiv.org/pdf/2603.00805)
+[![Interactive Demo](https://img.shields.io/badge/%E2%96%B6%20Live-Interactive%20Demo-22c55e?style=for-the-badge)](https://seemandhar.github.io/nerfify-code/demo.html)
+[![Video](https://img.shields.io/badge/%F0%9F%8E%AC-Demo%20Video-ff0000?style=for-the-badge)](./nerfify-demo.mp4)
 
-**CVPR 2026 (Highlight)**
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![NeRFStudio](https://img.shields.io/badge/NeRFStudio-compatible-8b5cf6?style=flat-square)](https://docs.nerf.studio/)
+[![Claude Agent SDK](https://img.shields.io/badge/Claude-Agent%20SDK-d97706?style=flat-square)](https://docs.anthropic.com/en/docs/agents-and-tools/claude-agent-sdk)
+[![CrewAI](https://img.shields.io/badge/CrewAI-supported-10b981?style=flat-square)](https://github.com/crewAIInc/crewAI)
+[![License: MIT](https://img.shields.io/badge/License-MIT-eab308?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/seemandhar/nerfify-code?style=flat-square&color=f59e0b)](https://github.com/seemandhar/nerfify-code/stargazers)
+
+**[Seemandhar Jain](https://seemandhar.github.io/) · [Keshav Gupta](#) · [Kunal Gupta](https://kunalgupta.me/) · [Manmohan Chandraker](https://cseweb.ucsd.edu/~mkchandraker/)**
+
+*University of California, San Diego*
+
+### 🏆 CVPR 2026 (Highlight) 🔥
+
+</div>
+
+---
+
+> 🚀 **Converting research papers into trainable Nerfstudio plugins — from weeks to minutes.**
 
 ## Demo
 
