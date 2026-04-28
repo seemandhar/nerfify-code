@@ -34,7 +34,12 @@
 
 ## Demo
 
-<video src="https://github.com/seemandhar/nerfify-code/raw/main/nerfify-demo.mp4" controls width="600"></video>
+
+
+https://github.com/user-attachments/assets/c75a6c0c-e512-40d3-aa7f-4e302de54729
+
+
+
 
 ## Overview
 
