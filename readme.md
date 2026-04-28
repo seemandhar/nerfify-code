@@ -34,9 +34,7 @@
 
 ## Demo
 
-[![Interactive Demo](demo-screenshot.png)](https://seemandhar.github.io/nerfify-code/demo.html)
-
-**[Click to launch the interactive demo](https://seemandhar.github.io/nerfify-code/demo.html)** — watch the full 7-agent pipeline run end-to-end: paper parsing, code generation, testing, debugging, training with PSNR feedback, and VLM-guided refinement.
+<video src="https://github.com/seemandhar/nerfify-code/raw/main/nerfify-demo.mp4" controls width="600"></video>
 
 ## Overview
 
