@@ -323,10 +323,11 @@ ns-train <method-name> --data /path/to/dataset
 If you find this work useful, please cite:
 
 ```bibtex
-@article{jain2026nerfify,
+@inproceedings{jain2026nerfify,
   title={NERFIFY: A Multi-Agent Framework for Turning NeRF Papers into Code},
   author={Jain, Seemandhar and Gupta, Keshav and Gupta, Kunal and Chandraker, Manmohan},
-  journal={arXiv preprint arXiv:2603.00805},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  pages={24384--24394},
   year={2026}
 }
 ```
